@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoiceCall UC2 Console</title>
+  <style>
+    :root {
+      --bg: #f2efe8;
+      --surface: #fffaf3;
+      --ink: #1e1e1e;
+      --accent: #0b6e4f;
+      --accent-2: #b6482d;
+      --soft: #d9cdb8;
+      --ok: #136f63;
+      --warn: #b66a11;
+      --err: #a22c29;
+      --shadow: 0 16px 40px rgba(40, 29, 10, 0.14);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Aptos", "Segoe UI Variable", "Trebuchet MS", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 18%, #eadfcd 0, transparent 30%),
+        radial-gradient(circle at 94% 84%, #d7ebdf 0, transparent 28%),
+        linear-gradient(165deg, #f4f1ea, #ebe4d6 48%, #f7f2e8 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .app {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 18px;
+      animation: rise 0.55s ease;
+    }
+
+    .panel {
+      background: color-mix(in srgb, var(--surface) 88%, white 12%);
+      border: 1px solid #d8cdb9;
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      padding: 14px 16px;
+      background: linear-gradient(90deg, #f8f1e5, #fbf7f0);
+      border-bottom: 1px solid #e7dac4;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .status {
+      font-size: 0.86rem;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #ece2ce;
+      color: #6f562a;
+      font-weight: 700;
+    }
+
+    .status.ok { background: #d6efe8; color: #0c6358; }
+    .status.warn { background: #faebcc; color: #84500d; }
+    .status.err { background: #f6d2d2; color: #872223; }
+
+    .panel-body { padding: 16px; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    input, select, textarea, button {
+      font: inherit;
+      border-radius: 10px;
+      border: 1px solid #c8bba5;
+      padding: 10px 12px;
+      background: #fffdf8;
+      color: var(--ink);
+    }
+
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid color-mix(in srgb, var(--accent) 40%, white);
+      outline-offset: 1px;
+    }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+
+    button {
+      border: 0;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 0.14s ease, filter 0.14s ease;
+    }
+
+    button:hover { transform: translateY(-1px); filter: brightness(1.03); }
+    button:disabled { cursor: not-allowed; opacity: 0.55; transform: none; }
+
+    .btn-main { background: linear-gradient(135deg, #19735b, #0d5c45); color: #fff; }
+    .btn-sub { background: linear-gradient(135deg, #305b82, #294f72); color: #fff; }
+    .btn-warn { background: linear-gradient(135deg, #b04a2f, #943720); color: #fff; }
+    .btn-ghost { background: #efe4d2; color: #5e4727; }
+
+    .live-box {
+      min-height: 140px;
+      max-height: 240px;
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #d9cbb4;
+      border-radius: 12px;
+      padding: 10px;
+    }
+
+    .line {
+      font-size: 0.93rem;
+      padding: 8px 9px;
+      border-bottom: 1px dashed #ecdcc6;
+      animation: fadeIn 0.28s ease;
+    }
+
+    .line:last-child { border-bottom: 0; }
+    .line .spk { font-weight: 700; color: #6b4b1c; margin-right: 8px; }
+
+    .cards {
+      display: grid;
+      gap: 10px;
+      max-height: 400px;
+      overflow: auto;
+    }
+
+    .card {
+      border-radius: 12px;
+      border: 1px solid #d6cab6;
+      background: #fff;
+      padding: 12px;
+      animation: slideIn 0.25s ease;
+    }
+
+    .card h4 { margin: 0 0 8px; font-size: 0.95rem; color: #345d7a; }
+    .card p { margin: 0; font-size: 0.93rem; line-height: 1.45; }
+    .card .src { margin-top: 8px; font-size: 0.78rem; color: #7f6a4a; }
+
+    .summary {
+      margin-top: 12px;
+      border-top: 1px solid #e4d6c0;
+      padding-top: 12px;
+      max-height: 260px;
+      overflow: auto;
+    }
+
+    .summary h3 { margin: 0 0 8px; color: #1b4e63; }
+    .summary-content {
+      background: #fff;
+      border: 1px solid #dbcdb8;
+      border-radius: 12px;
+      padding: 12px;
+      min-height: 80px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .tips {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 10px;
+      background: #f5ecdc;
+      font-size: 0.86rem;
+      color: #5f4b2e;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(12px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; }
+      .controls, .row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section class="panel">
+      <div class="panel-head">
+        <div class="title">UC2 Live Call Console</div>
+        <div id="connStatus" class="status">Disconnected</div>
+      </div>
+      <div class="panel-body">
+        <div class="row">
+          <input id="callId" placeholder="Call ID" value="demo-001" />
+          <input id="sessionId" placeholder="Session ID" value="session-demo-001" />
+        </div>
+
+        <div class="controls">
+          <button id="connectBtn" class="btn-main">Connect</button>
+          <button id="disconnectBtn" class="btn-ghost" disabled>Disconnect</button>
+          <button id="resetBtn" class="btn-ghost" disabled>Reset Session</button>
+        </div>
+
+        <div class="row">
+          <select id="speakerSelect">
+            <option value="agent">Agent</option>
+            <option value="customer">Customer</option>
+          </select>
+          <input id="langInput" value="zh-TW" placeholder="Speech language (e.g. zh-TW)" />
+        </div>
+
+        <div class="controls">
+          <button id="micStartBtn" class="btn-sub" disabled>Start Mic</button>
+          <button id="micStopBtn" class="btn-ghost" disabled>Stop Mic</button>
+          <button id="endCallBtn" class="btn-warn" disabled>End Call + Summary</button>
+        </div>
+
+        <div class="row">
+          <textarea id="manualText" rows="3" placeholder="Manual transcript input (optional)"></textarea>
+          <button id="sendManualBtn" class="btn-sub" disabled>Send Transcript</button>
+        </div>
+
+        <div class="tips">
+          Browser mic uses Web Speech API. If unsupported, use manual transcript input.
+        </div>
+
+        <h3>Live Transcript</h3>
+        <div id="transcriptBox" class="live-box"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="title">Assistant Guidance</div>
+        <div id="assistStatus" class="status warn">Waiting</div>
+      </div>
+      <div class="panel-body">
+        <div id="cards" class="cards"></div>
+
+        <div class="summary">
+          <h3>Post-Call Summary</h3>
+          <div id="summary" class="summary-content">No summary yet.</div>
+        </div>
+
+        <div class="summary">
+          <h3>Runtime Models</h3>
+          <div id="runtimeInfo" class="summary-content">Speech: N/A\nLLM: N/A</div>
+        </div>
+
+        <div class="summary">
+          <h3>Token Metrics</h3>
+          <div id="tokenMetrics" class="summary-content">No metrics yet.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const connStatus = document.getElementById('connStatus');
+    const assistStatus = document.getElementById('assistStatus');
+    const callId = document.getElementById('callId');
+    const sessionId = document.getElementById('sessionId');
+    const speakerSelect = document.getElementById('speakerSelect');
+    const langInput = document.getElementById('langInput');
+    const transcriptBox = document.getElementById('transcriptBox');
+    const cards = document.getElementById('cards');
+    const summary = document.getElementById('summary');
+    const runtimeInfo = document.getElementById('runtimeInfo');
+    const tokenMetrics = document.getElementById('tokenMetrics');
+    const manualText = document.getElementById('manualText');
+
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const micStartBtn = document.getElementById('micStartBtn');
+    const micStopBtn = document.getElementById('micStopBtn');
+    const endCallBtn = document.getElementById('endCallBtn');
+    const sendManualBtn = document.getElementById('sendManualBtn');
+
+    let ws = null;
+    let recognition = null;
+    let micRunning = false;
+    let micStartTime = null;
+    let lastSentAudioSeconds = 0;
+
+    function escapeHtml(text) {
+      return (text || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function setConnState(state, css) {
+      connStatus.textContent = state;
+      connStatus.className = `status ${css || ''}`.trim();
+    }
+
+    function setAssistState(state, css) {
+      assistStatus.textContent = state;
+      assistStatus.className = `status ${css || ''}`.trim();
+    }
+
+    function appendTranscriptLine(speaker, text) {
+      if (!text || !text.trim()) return;
+      const div = document.createElement('div');
+      div.className = 'line';
+      div.innerHTML = `<span class="spk">${escapeHtml(speaker)}:</span>${escapeHtml(text)}`;
+      transcriptBox.appendChild(div);
+      transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    }
+
+    function renderCards(items) {
+      cards.innerHTML = '';
+      if (!Array.isArray(items) || items.length === 0) {
+        cards.innerHTML = '<div class="card"><h4>Info</h4><p>No guidance yet.</p></div>';
+        return;
+      }
+
+      for (const item of items) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = [
+          `<h4>${escapeHtml(item.type || 'next_best_action')}</h4>`,
+          `<p>${escapeHtml(item.text || '')}</p>`,
+          `<div class="src">source: ${escapeHtml(item.source || 'assistant')}</div>`
+        ].join('');
+        cards.appendChild(card);
+      }
+    }
+
+    function updateSummary(text) {
+      summary.textContent = text && text.trim() ? text : 'No summary yet.';
+    }
+
+    function updateRuntimeInfo(runtime) {
+      const speech = runtime?.speech_model || 'N/A';
+      const llm = runtime?.llm_model || 'N/A';
+      runtimeInfo.textContent = `Speech: ${speech}\nLLM: ${llm}`;
+    }
+
+    function updateTokenMetrics(metrics) {
+      if (!metrics || !metrics.session_total) {
+        tokenMetrics.textContent = 'No metrics yet.';
+        return;
+      }
+
+      const total = metrics.session_total || {};
+      const last = metrics.last_request || {};
+      const audioDuration = metrics.audio_duration_seconds ?? 0;
+      const speechModel = metrics.speech_model || 'N/A';
+      const llmModel = metrics.llm_model || 'N/A';
+      tokenMetrics.textContent = [
+        `STT: ${speechModel}`,
+        `LLM: ${llmModel}`,
+        ``,
+        `Audio duration: ${audioDuration.toFixed(2)}s`,
+        `LLM requests: ${metrics.llm_requests ?? 0}`,
+        ``,
+        `Session total:`,
+        `  Input tokens: ${total.input_tokens ?? 0}`,
+        `  Output tokens: ${total.output_tokens ?? 0}`,
+        `  Total tokens: ${total.total_tokens ?? 0}`,
+        ``,
+        `Last request:`,
+        `  Input tokens: ${last.input_tokens ?? 0}`,
+        `  Output tokens: ${last.output_tokens ?? 0}`,
+        `  Total tokens: ${last.total_tokens ?? 0}`
+      ].join('\n');
+    }
+
+    function toggleControls(connected) {
+      connectBtn.disabled = connected;
+      disconnectBtn.disabled = !connected;
+      resetBtn.disabled = !connected;
+      micStartBtn.disabled = !connected;
+      micStopBtn.disabled = !connected || !micRunning;
+      endCallBtn.disabled = !connected;
+      sendManualBtn.disabled = !connected;
+    }
+
+    function wsUrl() {
+      const sid = encodeURIComponent(sessionId.value.trim() || `session-${Date.now()}`);
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      return `${protocol}://${window.location.host}/invocations_ws?agent_session_id=${sid}`;
+    }
+
+    function sendPayload(payload) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        session_id: sessionId.value.trim(),
+        call_id: callId.value.trim(),
+        speech_model: `Browser Web Speech API (${langInput.value.trim() || 'zh-TW'})`,
+        speech_language: langInput.value.trim() || 'zh-TW',
+        ...payload,
+      }));
+    }
+
+    function connect() {
+      if (ws && ws.readyState === WebSocket.OPEN) return;
+      ws = new WebSocket(wsUrl());
+      setConnState('Connecting', 'warn');
+
+      ws.onopen = () => {
+        setConnState('Connected', 'ok');
+        setAssistState('Live', 'ok');
+        toggleControls(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          renderCards(data.cards || []);
+          updateRuntimeInfo(data.runtime || null);
+          updateTokenMetrics(data.token_metrics || null);
+          if (typeof data.summary_markdown === 'string' && data.summary_markdown.trim()) {
+            updateSummary(data.summary_markdown);
+          }
+          if (data.status) {
+            const css = data.status.includes('error') ? 'err' : (data.status.includes('summary') ? 'ok' : 'warn');
+            setAssistState(data.status, css);
+          }
+        } catch {
+          setAssistState('Parse error', 'err');
+        }
+      };
+
+      ws.onerror = () => {
+        setConnState('Socket error', 'err');
+        setAssistState('Connection error', 'err');
+      };
+
+      ws.onclose = () => {
+        stopMic();
+        setConnState('Disconnected', '');
+        setAssistState('Waiting', 'warn');
+        toggleControls(false);
+      };
+    }
+
+    function disconnect() {
+      stopMic();
+      if (ws) ws.close();
+    }
+
+    function sendTranscript(text, speaker) {
+      const clean = (text || '').trim();
+      if (!clean) return;
+      appendTranscriptLine(speaker, clean);
+
+      let audioDuration = 0;
+      if (micStartTime) {
+        const elapsedSeconds = (Date.now() - micStartTime) / 1000;
+        audioDuration = Math.max(0, elapsedSeconds - lastSentAudioSeconds);
+        lastSentAudioSeconds = elapsedSeconds;
+      }
+      sendPayload({ 
+        type: 'transcript', 
+        speaker, 
+        text: clean, 
+        partial: false,
+        audio_duration_seconds: audioDuration
+      });
+    }
+
+    function startMic() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        setAssistState('No Web Speech API; use manual input', 'warn');
+        return;
+      }
+
+      micRunning = true;
+      micStartTime = Date.now();
+      lastSentAudioSeconds = 0;
+      micStartBtn.disabled = true;
+      micStopBtn.disabled = false;
+
+      function spawnRecognition() {
+        if (!micRunning) return;           // user stopped — do not restart
+
+        // Always create a fresh instance; reusing a stopped instance throws
+        // InvalidStateError in Chrome/Edge which silently kills the mic.
+        const r = new SR();
+        recognition = r;
+        r.lang = langInput.value.trim() || 'zh-TW';
+        r.continuous = true;
+        r.interimResults = true;
+
+        r.onstart = () => setAssistState('Mic listening', 'ok');
+
+        r.onresult = (event) => {
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            const text = result[0]?.transcript || '';
+            if (result.isFinal) {
+              sendTranscript(text, speakerSelect.value);
+            }
+          }
+        };
+
+        r.onerror = (event) => {
+          // 'no-speech' is normal during silence; ignore it.
+          // 'aborted' fires when we call stop() intentionally; also ignore.
+          if (event.error !== 'no-speech' && event.error !== 'aborted' && event.error !== 'audio-capture') {
+            setAssistState(`Mic error: ${event.error}`, 'err');
+          }
+        };
+
+        r.onend = () => {
+          // Browser terminates continuous recognition on silence timeout, token
+          // refresh, or tab visibility change. Respawn a fresh instance after
+          // a short delay so Chrome/Edge InvalidStateError can never occur.
+          if (micRunning) {
+            setTimeout(spawnRecognition, 300);
+          } else {
+            micStartBtn.disabled = !(ws && ws.readyState === WebSocket.OPEN);
+            micStopBtn.disabled = true;
+            setAssistState('Mic stopped', 'ok');
+          }
+        };
+
+        try {
+          r.start();
+        } catch {
+          // If start() itself fails (e.g. browser still tearing down), retry
+          if (micRunning) setTimeout(spawnRecognition, 500);
+        }
+      }
+
+      spawnRecognition();
+    }
+
+    function stopMic() {
+      micRunning = false;          // set BEFORE stop() so onend does not respawn
+      micStartTime = null;
+      lastSentAudioSeconds = 0;
+      if (recognition) {
+        try { recognition.stop(); } catch {}
+        recognition = null;
+      }
+      micStartBtn.disabled = !(ws && ws.readyState === WebSocket.OPEN);
+      micStopBtn.disabled = true;
+    }
+
+    function resetSession() {
+      micStartTime = null;
+      lastSentAudioSeconds = 0;
+      transcriptBox.innerHTML = '';
+      cards.innerHTML = '';
+      updateSummary('No summary yet.');
+      updateRuntimeInfo(null);
+      updateTokenMetrics(null);
+      sendPayload({ type: 'reset' });
+      setAssistState('Reset sent', 'warn');
+    }
+
+    function endCall() {
+      stopMic();
+      sendPayload({ type: 'end_call', speaker: 'system', text: 'Call ended. Generate summary.' });
+      setAssistState('Generating summary', 'warn');
+    }
+
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+    resetBtn.addEventListener('click', resetSession);
+    micStartBtn.addEventListener('click', startMic);
+    micStopBtn.addEventListener('click', stopMic);
+    endCallBtn.addEventListener('click', endCall);
+
+    sendManualBtn.addEventListener('click', () => {
+      sendTranscript(manualText.value, speakerSelect.value);
+      manualText.value = '';
+      manualText.focus();
+    });
+
+    manualText.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        sendManualBtn.click();
+      }
+    });
+
+    updateSummary('No summary yet.');
+    updateRuntimeInfo(null);
+    updateTokenMetrics(null);
+    renderCards([]);
+    toggleControls(false);
+  </script>
+</body>
+</html>
