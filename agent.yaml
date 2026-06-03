@@ -1,0 +1,20 @@
+kind: hosted
+name: voice-call-assistant
+description: Real-time UC2 call assistant built with Microsoft Agent Framework.
+protocols:
+  - protocol: invocations_ws
+    version: 1.0.0
+resources:
+  cpu: "1"
+  memory: 2Gi
+environment_variables:
+  - name: VOICE_ASSIST_PROJECT_ENDPOINT
+    value: ${VOICE_ASSIST_PROJECT_ENDPOINT}
+  - name: VOICE_ASSIST_MODEL_DEPLOYMENT_NAME
+    value: ${VOICE_ASSIST_MODEL_DEPLOYMENT_NAME}
+  - name: VOICE_ASSIST_WINDOW_TURNS
+    value: ${VOICE_ASSIST_WINDOW_TURNS}
+  - name: VOICE_ASSIST_MAX_CARDS
+    value: ${VOICE_ASSIST_MAX_CARDS}
+  - name: VOICE_ASSIST_PROMPT_PATH
+    value: ${VOICE_ASSIST_PROMPT_PATH}

@@ -1,0 +1,9 @@
+azure-identity>=1.17.0
+azure-storage-blob>=12.20.0
+azure-cognitiveservices-speech>=1.40.0
+azure-ai-agentserver-invocations
+agent-framework
+agent-framework-foundry-hosting
+openai>=1.40.0
+python-dotenv>=1.0.1
+starlette
