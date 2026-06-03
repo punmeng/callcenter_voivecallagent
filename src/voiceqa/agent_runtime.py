@@ -1,17 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from agent_framework import Agent
 from agent_framework.foundry import FoundryAgent, FoundryChatClient
 from agent_framework.openai import OpenAIChatClient
 from azure.identity import DefaultAzureCredential
-
-
-@dataclass(frozen=True)
-class AgentRuntimeConfig:
-    name: str
-    instructions: str
 
 
 def build_azure_openai_agent(

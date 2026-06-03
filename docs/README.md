@@ -73,6 +73,10 @@ UC2 uses the Foundry agent runtime and the `VOICE_ASSIST_*` environment variable
 - [README_UC1.zh-TW.md](README_UC1.zh-TW.md)
 - [README_UC2.zh-TW.md](README_UC2.zh-TW.md)
 
+## Architecture diagram
+
+![VoiceQA Architecture](images/VoiceQA_Architecture.png)
+
 ## Repository docs
 
 - [DEVELOPMENT_NOTES.md](DEVELOPMENT_NOTES.md)
