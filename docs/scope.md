@@ -19,7 +19,7 @@ Two distinct needs exist:
 | **Output** | Markdown QA report per call + roll-up | Live on-screen guidance to the agent |
 | **Latency** | Minutes–hours is fine | Sub-second matters |
 | **Volume (stated)** | 600 calls/month × 5 min = 50 audio-hr/mo | 10 lines × 8 hr/day × 30 days = 2,400 audio-hr/mo |
-| **Build status** | **Implemented** (this repo) | **New** — design only so far |
+| **Build status** | **Implemented** (this repo) | **Implemented (Foundry WebSocket mode)** |
 
 Both cases share the **same STT foundation**; they diverge on transcription mode
 (batch vs. streaming) and on the downstream consumer (rubric judge vs. live assist).
@@ -59,7 +59,7 @@ The STT tuning ladder (applied in order, cheapest/safest first):
 4. **`corrections.json`** — deterministic post-STT string replacement for recurring errors.
 5. **Custom Speech model** — last resort; requires labeled audio. zh-TW is supported.
 
-Modules: `stt_agent.py` (recognition), `corrections.py` (post-processor).
+Modules: `uc1_stt_agent.py` (recognition), `corrections.py` (post-processor).
 
 ---
 
@@ -84,23 +84,22 @@ Modules: `uc1_qa_judge.py`, `uc1_markdown_writer.py`, orchestrated by `voiceqa.u
 
 ---
 
-## 6. Method — Case 2 (Call Assistant) — proposed
+## 6. Method — Case 2 (Call Assistant) — implemented baseline
 
-> Not yet built. This is the intended design for estimation purposes.
+UC2 is implemented in this repo as a real-time assistant over a WebSocket stream with Foundry Agent Framework.
 
-- **Streaming/real-time STT** per active line (continuous recognition, partial results).
-- Continuous LID add-on enabled for live code-switching.
-- A live-assist layer consumes the rolling transcript and produces agent guidance
-  (e.g., next-best-action, compliance reminders, answer lookups). LLM model choice and
-  call frequency are the main cost drivers — see `cost_estimate.md` §Case 2.
-- Reuses the Phrase List and `corrections.json` assets from Case 1.
+- **Streaming transcript ingestion** per active session over `/invocations_ws`.
+- Rolling transcript window with live assist generation (next-best-action, compliance, answer cards).
+- Optional post-call summary output.
+- Runtime and token metrics surfaced to the built-in call-center UI.
+- STT mode labels and routing support shared `SPEECH_ENDPOINT` fallback, aligned with UC1 endpoint configuration.
 
-**Open design questions** (to resolve before Case 2 build):
+**Next design questions** (future iteration):
 - How often does the assistant call the model (per turn? per N seconds? on trigger phrases)?
 - Does it need retrieval (knowledge base / CRM) — adds latency + cost?
-- Confirm the recommended **hybrid** design (Azure **Voice Live API** on the sub-second hot
-  path + a hosted agent for async retrieval/compliance/next-best-action) at 10 concurrent
-  lines — see `design_spec_uc2_realtime_assistant.md`.
+- Confirm whether to move to the recommended **hybrid** design (Azure **Voice Live API** on the
+  sub-second hot path + hosted agent for async retrieval/compliance/next-best-action) at 10
+  concurrent lines — see `design_spec_uc2_realtime_assistant.md`.
 
 ---
 

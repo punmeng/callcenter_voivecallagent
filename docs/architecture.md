@@ -70,6 +70,8 @@ keep in Case 2.
 
 ### Case 2 — Call Assistant → hybrid (Voice Live hot path + hosted agent for async assist)
 
+- Current baseline in this repo: Foundry WebSocket real-time assistant (`voiceqa.uc2_main`).
+- Recommended next-step architecture: hybrid design described below.
 - Real-time, stateful per call, sub-second latency target.
 - A full managed-agent orchestration loop adds round-trip latency that fights the
   sub-second goal — so keep it **off the speech hot path**.

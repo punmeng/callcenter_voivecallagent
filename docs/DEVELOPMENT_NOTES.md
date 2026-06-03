@@ -6,12 +6,12 @@ This note describes what each important file in the current codebase does.
 
 - `python -m voiceqa.uc1_main` - UC1 batch launcher.
 - `python -m voiceqa.uc2_main` - UC2 hosted-agent launcher.
-- [src/voiceqa/uc1_main.py](src/voiceqa/uc1_main.py) - UC1 batch orchestration.
-- [src/voiceqa/uc2_main.py](src/voiceqa/uc2_main.py) - UC2 hosted-agent entrypoint.
-- [.env.example](.env.example) - sample environment variables for local development.
-- [requirements.txt](requirements.txt) - Python dependencies used by both UC1 and UC2.
-- [Dockerfile](Dockerfile) - container image definition for the hosted agent.
-- [agent.yaml](agent.yaml) - Foundry hosted-agent metadata and environment variables for UC2.
+- [../src/voiceqa/uc1_main.py](../src/voiceqa/uc1_main.py) - UC1 batch orchestration.
+- [../src/voiceqa/uc2_main.py](../src/voiceqa/uc2_main.py) - UC2 hosted-agent entrypoint.
+- [../.env.example](../.env.example) - sample environment variables for local development.
+- [../requirements.txt](../requirements.txt) - Python dependencies used by both UC1 and UC2.
+- [../Dockerfile](../Dockerfile) - container image definition for the hosted agent.
+- [../agent.yaml](../agent.yaml) - Foundry hosted-agent metadata and environment variables for UC2.
 - [README.md](README.md) - top-level overview of the current codebase.
 - [README_UC1.md](README_UC1.md) - UC1-specific usage and environment notes.
 - [README_UC2.md](README_UC2.md) - UC2-specific usage and environment notes.
@@ -22,20 +22,20 @@ This note describes what each important file in the current codebase does.
 
 ## Assets
 
-- [assets/phrase_list.txt](assets/phrase_list.txt) - speech phrase boosting terms.
-- [assets/corrections.json](assets/corrections.json) - deterministic post-STT text corrections.
-- [assets/rubric.json](assets/rubric.json) - local rubric source used when present.
-- [assets/rubric.check_items.json](assets/rubric.check_items.json) - rubric check-item seed data.
-- [assets/check_items_rules.json](assets/check_items_rules.json) - rule mapping used for scoring artifacts.
-- [assets/uc1_prompt.txt](assets/uc1_prompt.txt) - UC1 judge prompt text.
-- [assets/uc2_agent_prompt.txt](assets/uc2_agent_prompt.txt) - UC2 live-assistant prompt text.
+- [../assets/phrase_list.txt](../assets/phrase_list.txt) - speech phrase boosting terms.
+- [../assets/corrections.json](../assets/corrections.json) - deterministic post-STT text corrections.
+- [../assets/rubric.json](../assets/rubric.json) - local rubric source used when present.
+- [../assets/rubric.check_items.json](../assets/rubric.check_items.json) - rubric check-item seed data.
+- [../assets/check_items_rules.json](../assets/check_items_rules.json) - rule mapping used for scoring artifacts.
+- [../assets/uc1_prompt.txt](../assets/uc1_prompt.txt) - UC1 judge prompt text.
+- [../assets/uc2_agent_prompt.txt](../assets/uc2_agent_prompt.txt) - UC2 live-assistant prompt text.
 
 ## Reports
 
-- [reports/001.md](reports/001.md) - example UC1 Markdown report.
-- [reports/001.scoring.json](reports/001.scoring.json) - example scoring details output.
-- [reports/001.metrics.json](reports/001.metrics.json) - example metrics output.
-- [reports/scoring_rules.json](reports/scoring_rules.json) - generated rule summary for scoring.
+- [../reports/001.md](../reports/001.md) - example UC1 Markdown report.
+- [../reports/001.scoring.json](../reports/001.scoring.json) - example scoring details output.
+- [../reports/001.metrics.json](../reports/001.metrics.json) - example metrics output.
+- [../reports/scoring_rules.json](../reports/scoring_rules.json) - generated rule summary for scoring.
 
 ## Source package
 

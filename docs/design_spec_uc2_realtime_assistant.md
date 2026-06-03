@@ -1,8 +1,8 @@
 # Software Design Spec — UC2: Real-time Call Assistant
 
-> Version 0.1 · 2026-06-03 · Author: Alex Pun
-> Use Case 2 (Call Assistant, real-time streaming). **Input:** live audio stream per active call line. **Output:** on-screen guidance to the agent during the call (plus an optional post-call Markdown summary).
-> This is a clean design spec. It does not assume or reference any existing code.
+> Version 0.2 · 2026-06-04 · Author: Alex Pun
+> Use Case 2 (Call Assistant, real-time streaming). **Input:** live audio stream or live transcript stream per active call line. **Output:** on-screen guidance to the agent during the call (plus an optional post-call Markdown summary).
+> This document describes the **target hybrid architecture**. Current repo implementation is UC2 Foundry WebSocket mode (`voiceqa.uc2_main`) and can evolve toward this target.
 
 ---
 
@@ -131,7 +131,7 @@ This split is the recommendation already captured in `architecture.md` § Hostin
 | Runtime | Serverless batch job | Hybrid: Voice Live hot path + hosted agent |
 | Latency | Minutes–hours OK | Sub-second |
 | Cost/mo | ≈ $33–335 | ≈ $2,518–3,653 |
-| Status | Implemented | Design only |
+| Status | Implemented | Implemented baseline (Foundry WebSocket), hybrid design in planning |
 
 ## 10. Open questions
 

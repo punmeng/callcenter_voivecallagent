@@ -119,7 +119,7 @@ $env:SPEECH_ENDPOINT = "<your-azure-speech-endpoint>"
 
 UC1 now prefers the portal agent path when `FOUNDRY_AGENT_NAME` is set. If you leave those settings out, it falls back to the older Foundry model-deployment client or Azure OpenAI path.
 
-Reusable runbook for create/update is here: `docs/UC1_FOUNDRY_AGENT_PROCEDURE.md`.
+Reusable runbook for create/update is here: `UC1_FOUNDRY_AGENT_PROCEDURE.md`.
 
 Legacy OpenAI endpoint example:
 

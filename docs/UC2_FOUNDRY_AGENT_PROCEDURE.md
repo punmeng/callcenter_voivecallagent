@@ -42,6 +42,13 @@ VOICE_ASSIST_AGENT_VERSION=<new-version>
 
 If VOICE_ASSIST_AGENT_NAME is set, UC2 runtime uses Foundry portal-agent mode.
 
+UC2 runtime also accepts compatibility aliases:
+
+```env
+FOUNDRY_VOICE_ASSIST_AGENT_NAME=voicecall-uc2-assistant
+FOUNDRY_VOICE_ASSIST_AGENT_VERSION=<new-version>
+```
+
 ## 4. Run UC2
 
 ```powershell

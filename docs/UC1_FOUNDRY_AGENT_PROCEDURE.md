@@ -47,6 +47,13 @@ FOUNDRY_AGENT_NAME=voicecall-uc1-judge
 FOUNDRY_AGENT_VERSION=<new-version>
 ```
 
+UC1 runtime also accepts UC1-specific names (fallback aliases):
+
+```env
+UC1_FOUNDRY_AGENT_NAME=voicecall-uc1-judge
+UC1_FOUNDRY_AGENT_VERSION=<new-version>
+```
+
 UC1 runtime now prefers this portal-agent path.
 
 ## 4. Verify End-to-End
