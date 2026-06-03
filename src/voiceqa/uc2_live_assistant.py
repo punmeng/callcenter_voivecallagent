@@ -471,7 +471,7 @@ def _resolve_speech_model_label(payload: dict[str, Any]) -> str:
         or str(os.getenv("SPEECH_ENDPOINT") or "").strip().lower()
     )
     if stt_service and "azure" in stt_service:
-        stt_model = str(payload.get("stt_model") or os.getenv("VOICE_ASSIST_STT_MODEL") or "Azure Speech - Speech Recognition").strip()
+        stt_model = str(payload.get("stt_model") or os.getenv("VOICE_ASSIST_STT_MODEL") or "Azure Speech - Text to Speech").strip()
         return f"Azure Speech Service ({stt_model})"
     
     payload_label = str(payload.get("speech_model") or "").strip()
