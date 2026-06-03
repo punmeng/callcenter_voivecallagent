@@ -51,6 +51,10 @@ python -m voiceqa.uc2_main
 - UI：`http://127.0.0.1:8080/`
 - WebSocket：`ws://127.0.0.1:8080/invocations_ws`
 
+## 畫面截圖
+
+![UC2 即時通話助理介面](images/uc2-live-console.png)
+
 ## 啟動檢查清單
 
 - `az login` 成功

@@ -49,6 +49,10 @@ Server default:
 - HTTP UI: `http://127.0.0.1:8080/`
 - WebSocket: `ws://127.0.0.1:8080/invocations_ws`
 
+## Screenshot
+
+![UC2 Live Call Console](images/uc2-live-console.png)
+
 ## Startup checklist
 
 - `az login` is successful.
