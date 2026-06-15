@@ -1259,12 +1259,10 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         home_uc1_label: "UC1",
         home_uc2_label: "UC2",
         home_benchmark_label: "Benchmark default",
-        home_btn_benchmark: "Open benchmark page",
         home_btn_live: "Open live assistant",
         home_stats_uc1: "UC1",
         home_stats_uc2: "UC2",
         home_stats_benchmark: "Benchmark",
-        home_stats_mode: "Benchmark",
         home_section_cases: "Use cases",
         home_section_cases_desc: "Each page explains what the use case does, its value, and the STT model it uses.",
         home_card_btn: "Open page",
@@ -1355,12 +1353,10 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         home_uc1_label: "UC1",
         home_uc2_label: "UC2",
         home_benchmark_label: "基準預設",
-        home_btn_benchmark: "打開基準測試頁面",
         home_btn_live: "打開實時助手",
         home_stats_uc1: "UC1",
         home_stats_uc2: "UC2",
         home_stats_benchmark: "基準測試",
-        home_stats_mode: "基準測試",
         home_section_cases: "使用案例",
         home_section_cases_desc: "每個頁面都解釋了使用案例的作用、其價值和它使用的 STT 模型。",
         home_card_btn: "打開頁面",
@@ -1516,6 +1512,10 @@ def _home_page() -> str:
         if latest
         else "No benchmark runs found yet."
     )
+    benchmark_mode = (
+        "Parallel run enabled" if cfg["benchmark_parallel"] else "Sequential run by default"
+    )
+    benchmark_value = f"{benchmark_mode} · {latest_line}"
 
     cards_html = "".join(
         f"""
@@ -1551,8 +1551,7 @@ def _home_page() -> str:
             <span class="chip"><strong data-i18n-text="home_benchmark_label">Benchmark default</strong> {escape(', '.join(cfg["benchmark_default_providers"]))}</span>
           </div>
           <div class="cta-row">
-            <a class="btn primary" href="/benchmark" data-i18n-text="home_btn_benchmark">Open benchmark page</a>
-            <a class="btn" href="/uc2/live" data-i18n-text="home_btn_live">Open live assistant</a>
+            <a class="btn primary" href="/uc2/live" data-i18n-text="home_btn_live">Open live assistant</a>
           </div>
         </div>
         <div class="stats">
@@ -1566,11 +1565,7 @@ def _home_page() -> str:
           </div>
           <div class="stat">
             <div class="k" data-i18n-text="home_stats_benchmark">Benchmark</div>
-            <div class="v">{'Parallel run enabled' if cfg['benchmark_parallel'] else 'Sequential run by default'}</div>
-          </div>
-          <div class="stat">
-            <div class="k" data-i18n-text="home_stats_mode">Benchmark status</div>
-            <div class="v">{escape(latest_line)}</div>
+            <div class="v">{escape(benchmark_value)}</div>
           </div>
         </div>
       </div>
