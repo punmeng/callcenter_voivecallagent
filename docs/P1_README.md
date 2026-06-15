@@ -95,23 +95,23 @@ UC2 uses the Foundry agent runtime and the `VOICE_ASSIST_*` environment variable
 ## Baseline scope checklist
 
 - 2 call-center use cases: `UC1` + `UC2`
-- 1 benchmark method: `STT_BENCHMARK.md` + `scripts/eval_stt_quality.py`
-- 1 voice design concept: `VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md`
-- cost estimate for both UCs: `cost_estimate.md` (Case 1 + Case 2)
+- 1 benchmark method: `P11_STT_BENCHMARK.md` + `scripts/eval_stt_quality.py`
+- 1 voice design concept: `P3_VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md`
+- cost estimate for both UCs: `P12_cost_estimate.md` (Case 1 + Case 2)
 
 ## Repository organization
 
-- [REPO_ORGANIZATION.md](REPO_ORGANIZATION.md)
-- [PROCESS_SUMMARY.md](PROCESS_SUMMARY.md)
+- [P14_REPO_ORGANIZATION.md](P14_REPO_ORGANIZATION.md)
+- [P13_PROCESS_SUMMARY.md](P13_PROCESS_SUMMARY.md)
 - [../catalog/README.md](../catalog/README.md)
 - [../catalog/voice_catalogs.yaml](../catalog/voice_catalogs.yaml)
 
 ## Traditional Chinese docs
 
-- [README.zh-TW.md](README.zh-TW.md)
-- [README_UC1.zh-TW.md](README_UC1.zh-TW.md)
-- [README_UC2.zh-TW.md](README_UC2.zh-TW.md)
-- [VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md](VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md)
+- [P1_README.zh-TW.md](P1_README.zh-TW.md)
+- [P7_README_UC1.zh-TW.md](P7_README_UC1.zh-TW.md)
+- [P8_README_UC2.zh-TW.md](P8_README_UC2.zh-TW.md)
+- [P3_VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md](P3_VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md)
 
 ## Architecture diagram
 
@@ -119,7 +119,7 @@ UC2 uses the Foundry agent runtime and the `VOICE_ASSIST_*` environment variable
 
 ## Repository docs
 
-- [DEVELOPMENT_NOTES.md](DEVELOPMENT_NOTES.md)
+- [P15_DEVELOPMENT_NOTES.md](P15_DEVELOPMENT_NOTES.md)
 - [../src/voiceqa/uc1_main.py](../src/voiceqa/uc1_main.py)
 - [../src/voiceqa/uc1_qa_judge.py](../src/voiceqa/uc1_qa_judge.py)
 - [../src/voiceqa/uc1_stt_agent.py](../src/voiceqa/uc1_stt_agent.py)
@@ -127,13 +127,13 @@ UC2 uses the Foundry agent runtime and the `VOICE_ASSIST_*` environment variable
 - [../src/voiceqa/uc1_blob_reader.py](../src/voiceqa/uc1_blob_reader.py)
 - [../src/voiceqa/uc2_main.py](../src/voiceqa/uc2_main.py)
 - [../src/voiceqa/uc2_live_assistant.py](../src/voiceqa/uc2_live_assistant.py)
-- [README_UC1.md](README_UC1.md)
-- [README_UC2.md](README_UC2.md)
-- [scope.md](scope.md)
-- [architecture.md](architecture.md)
-- [design_spec_uc1_blob_to_md.md](design_spec_uc1_blob_to_md.md)
-- [design_spec_uc2_realtime_assistant.md](design_spec_uc2_realtime_assistant.md)
-- [STT_BENCHMARK.md](STT_BENCHMARK.md)
-- [VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md](VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md)
-- [REPO_ORGANIZATION.md](REPO_ORGANIZATION.md)
-- [PROCESS_SUMMARY.md](PROCESS_SUMMARY.md)
+- [P7_README_UC1.md](P7_README_UC1.md)
+- [P8_README_UC2.md](P8_README_UC2.md)
+- [P2_scope.md](P2_scope.md)
+- [P4_architecture.md](P4_architecture.md)
+- [P5_design_spec_uc1_blob_to_md.md](P5_design_spec_uc1_blob_to_md.md)
+- [P6_design_spec_uc2_realtime_assistant.md](P6_design_spec_uc2_realtime_assistant.md)
+- [P11_STT_BENCHMARK.md](P11_STT_BENCHMARK.md)
+- [P3_VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md](P3_VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md)
+- [P14_REPO_ORGANIZATION.md](P14_REPO_ORGANIZATION.md)
+- [P13_PROCESS_SUMMARY.md](P13_PROCESS_SUMMARY.md)

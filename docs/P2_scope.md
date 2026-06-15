@@ -35,7 +35,7 @@ Both cases share the **same STT foundation**; they diverge on transcription mode
   by the customer's rubric workbook (`input/sample.xlsx`).
 - **Markdown report generation** — one `.md` QA report per call, with a pass/fail tally,
   項目 1–3 summaries, and a per-item 判定結果/判定原因 table (`不符合` rows flagged).
-- **Cost model** for both cases (see `cost_estimate.md`).
+- **Cost model** for both cases (see `P12_cost_estimate.md`).
 
 ## 3. Out of scope (for now)
 
@@ -99,7 +99,7 @@ UC2 is implemented in this repo as a real-time assistant over a WebSocket stream
 - Does it need retrieval (knowledge base / CRM) — adds latency + cost?
 - Confirm whether to move to the recommended **hybrid** design (Azure **Voice Live API** on the
   sub-second hot path + hosted agent for async retrieval/compliance/next-best-action) at 10
-  concurrent lines — see `design_spec_uc2_realtime_assistant.md`.
+  concurrent lines — see `P6_design_spec_uc2_realtime_assistant.md`.
 
 ---
 
@@ -120,8 +120,8 @@ UC2 is implemented in this repo as a real-time assistant over a WebSocket stream
 
 ## 9. Deliverables
 
-- This repo (Case 1 pipeline) + `architecture.md`.
-- `scope.md` (this file), `cost_estimate.md`, and `cost_estimate.zh-TW.md`.
-- `design_spec_uc1_blob_to_md.md` and `design_spec_uc2_realtime_assistant.md`.
+- This repo (Case 1 pipeline) + `P4_architecture.md`.
+- `P2_scope.md` (this file), `P12_cost_estimate.md`, and `P12_cost_estimate.zh-TW.md`.
+- `P5_design_spec_uc1_blob_to_md.md` and `P6_design_spec_uc2_realtime_assistant.md`.
 - `VoiceQA_Scope_and_Cost.pptx` (scope & cost deck).
 - Phrase list + corrections seed files; optional Custom Speech training plan.

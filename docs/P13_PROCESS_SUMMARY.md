@@ -93,13 +93,13 @@ Use the three-layer view from the design concept:
 
 Reference:
 
-- `docs/VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md`
+- `docs/P3_VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md`
 
 ## 6. Cost process
 
 Use one canonical cost file with per-use-case sections:
 
-- `docs/cost_estimate.md`
+- `docs/P12_cost_estimate.md`
 
 Current sections:
 
@@ -133,11 +133,11 @@ Validated on 2026-06-04:
 
 ## 9. Primary references
 
-- `docs/README.md`
-- `docs/README_UC1.md`
-- `docs/README_UC2.md`
-- `docs/STT_BENCHMARK.md`
-- `docs/VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md`
-- `docs/REPO_ORGANIZATION.md`
-- `docs/cost_estimate.md`
+- `docs/P1_README.md`
+- `docs/P7_README_UC1.md`
+- `docs/P8_README_UC2.md`
+- `docs/P11_STT_BENCHMARK.md`
+- `docs/P3_VOICE_USE_CASES_DESIGN_CONCEPT.zh-TW.md`
+- `docs/P14_REPO_ORGANIZATION.md`
+- `docs/P12_cost_estimate.md`
 - `catalog/README.md`

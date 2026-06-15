@@ -34,7 +34,7 @@ Use `catalog/` as the planning/control layer.
 3. Add `start_<id>.ps1` if new runtime path is needed.
 4. Add docs in `docs/README_<id>.md` + design spec.
 5. Add or reuse benchmark method in `catalog/methods/`.
-6. Add cost section for the use case in `docs/cost_estimate.md`.
+6. Add cost section for the use case in `docs/P12_cost_estimate.md`.
 
 ## Naming conventions
 
@@ -44,6 +44,6 @@ Use `catalog/` as the planning/control layer.
 
 ## Cost estimation policy
 
-- Keep one canonical file: `docs/cost_estimate.md`.
+- Keep one canonical file: `docs/P12_cost_estimate.md`.
 - Require a dedicated section per use case with explicit assumptions.
-- Keep a zh-TW mirror in `docs/cost_estimate.zh-TW.md`.
+- Keep a zh-TW mirror in `docs/P12_cost_estimate.zh-TW.md`.

@@ -12,13 +12,13 @@ This note describes what each important file in the current codebase does.
 - [../requirements.txt](../requirements.txt) - Python dependencies used by both UC1 and UC2.
 - [../Dockerfile](../Dockerfile) - container image definition for the hosted agent.
 - [../agent.yaml](../agent.yaml) - Foundry hosted-agent metadata and environment variables for UC2.
-- [README.md](README.md) - top-level overview of the current codebase.
-- [README_UC1.md](README_UC1.md) - UC1-specific usage and environment notes.
-- [README_UC2.md](README_UC2.md) - UC2-specific usage and environment notes.
-- [scope.md](scope.md) - business scope and case comparison.
-- [architecture.md](architecture.md) - current architecture and deployment rationale.
-- [design_spec_uc1_blob_to_md.md](design_spec_uc1_blob_to_md.md) - UC1 design spec.
-- [design_spec_uc2_realtime_assistant.md](design_spec_uc2_realtime_assistant.md) - UC2 design spec.
+- [P1_README.md](P1_README.md) - top-level overview of the current codebase.
+- [P7_README_UC1.md](P7_README_UC1.md) - UC1-specific usage and environment notes.
+- [P8_README_UC2.md](P8_README_UC2.md) - UC2-specific usage and environment notes.
+- [P2_scope.md](P2_scope.md) - business scope and case comparison.
+- [P4_architecture.md](P4_architecture.md) - current architecture and deployment rationale.
+- [P5_design_spec_uc1_blob_to_md.md](P5_design_spec_uc1_blob_to_md.md) - UC1 design spec.
+- [P6_design_spec_uc2_realtime_assistant.md](P6_design_spec_uc2_realtime_assistant.md) - UC2 design spec.
 
 ## Assets
 
@@ -32,9 +32,9 @@ This note describes what each important file in the current codebase does.
 
 ## Reports
 
-- [../reports/001.md](../reports/001.md) - example UC1 Markdown report.
-- [../reports/001.scoring.json](../reports/001.scoring.json) - example scoring details output.
-- [../reports/001.metrics.json](../reports/001.metrics.json) - example metrics output.
+- [../reports/002_azure-speech-stt_20260615_141244.md](../reports/002_azure-speech-stt_20260615_141244.md) - example UC1 Markdown report.
+- [../reports/002.scoring.json](../reports/002.scoring.json) - example scoring details output.
+- [../reports/002.metrics.json](../reports/002.metrics.json) - example metrics output.
 - [../reports/scoring_rules.json](../reports/scoring_rules.json) - generated rule summary for scoring.
 
 ## Source package

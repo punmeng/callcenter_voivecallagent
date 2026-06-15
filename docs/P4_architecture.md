@@ -77,7 +77,7 @@ keep in Case 2.
   sub-second goal — so keep it **off the speech hot path**.
 - **Recommended hybrid:**
   - **Real-time speech path → Azure Voice Live API** (integrated speech + LLM, built
-    for low latency). This is the open question already flagged in `scope.md` §6.
+    for low latency). This is the open question already flagged in `P2_scope.md` §6.
   - **Hosted agent only for the heavier async assist** — KB/CRM retrieval, compliance
     checks, next-best-action — work that tolerates 1–2s and benefits from managed tools,
     state, and observability.

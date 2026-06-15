@@ -98,7 +98,7 @@ STT mode resolution order in UC2:
 
 Reusable build runbook:
 
-- `docs/UC2_FOUNDRY_AGENT_PROCEDURE.md`
+- `docs/P10_UC2_FOUNDRY_AGENT_PROCEDURE.md`
 
 ## Message shape
 

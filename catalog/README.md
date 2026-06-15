@@ -14,7 +14,7 @@ This folder is a lightweight control plane for scaling VoiceCall Verify beyond U
 1. Copy `templates/use_case.template.yaml` to `use_cases/<new-name>.yaml`.
 2. Set `runtime.method_id` to an existing method in `methods/`.
 3. Set `capabilities.required` to the minimum required features.
-4. Add docs under `docs/` and link from `docs/README.md`.
+4. Add docs under `docs/` and link from `docs/P1_README.md`.
 
 ## Current baseline
 

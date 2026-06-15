@@ -47,7 +47,7 @@ The core principle: **keep the orchestration loop off the sub-second hot path.**
 - **Hot path → Azure Voice Live API:** integrated low-latency speech + LLM for the time-critical turn-by-turn interaction.
 - **Async assist → hosted/managed agent:** the heavier work (retrieval, compliance, next-best-action) that tolerates 1–2s and benefits from managed tools, state, and observability — deliberately kept off the latency-critical path.
 
-This split is the recommendation already captured in `architecture.md` § Hosting & deployment.
+This split is the recommendation already captured in `P4_architecture.md` § Hosting & deployment.
 
 ## 4. Components
 
