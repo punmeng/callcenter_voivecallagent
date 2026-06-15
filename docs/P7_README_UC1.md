@@ -25,6 +25,21 @@ Generated QA report view:
 
 ![UC1 quality check report](images/03_uc1_qualitycheck_report.png)
 
+## Voice optimization skills
+
+UC1 stacks the following Azure Speech optimization techniques to maximize transcription accuracy on mixed zh-TW + English call audio (implemented in [../src/voiceqa/uc1_stt_agent.py](../src/voiceqa/uc1_stt_agent.py)):
+
+| Skill | What it does | Where to configure |
+| --- | --- | --- |
+| Continuous Language ID | Auto-detects zh-TW vs en-US per utterance with `AutoDetectSourceLanguageConfig`, so code-switching mid-call is handled. | `SPEECH_LANGUAGES` env var or `[uc1].languages` in `config/stt_config.toml`. |
+| Speaker diarization | `ConversationTranscriber` tags each turn with a speaker id, separating agent vs customer in the report. | Provider `azure-speech-stt` in `[uc1]`. |
+| Phrase list boosting | Loads domain terms / product names from a phrase list to bias recognition toward expected vocabulary. | `assets/phrase_list.txt` (`PHRASE_LIST_PATH`); toggle with `[uc1].phrase_list`. |
+| Detailed output + word timestamps | Requests `Detailed` output, word-level timestamps, and word-level corrections for richer scoring evidence. | Always on in UC1. |
+| N-best capture | Stores the top-3 alternative hypotheses per segment for downstream review. | Always on in UC1. |
+| Post-STT corrections | Regex-based canonicalization of known mis-hearings (e.g. brand names) after recognition. | `assets/corrections.json` (`CORRECTIONS_PATH`). |
+| Custom Speech model | Optionally routes to a fine-tuned Custom Speech endpoint for domain-specific acoustics/vocabulary. | `SPEECH_CUSTOM_ENDPOINT_ID`. |
+| Pluggable STT provider | Swap the STT engine (real-time SDK, fast SDK, REST fast-transcription, MAI-Transcribe, GPT audio, Custom Speech) without code changes. | `[uc1].provider` in `config/stt_config.toml`. |
+
 ## 1. Setup
 
 ```powershell

@@ -12,6 +12,36 @@ from .corrections import CorrectionEngine
 from .models import Transcript, TranscriptTurn
 
 
+def build_speech_config(settings: Settings) -> speechsdk.SpeechConfig:
+    """Build a SpeechConfig from Settings using the shared auth ladder.
+
+    Supported auth modes:
+      1. SPEECH_ENDPOINT + SPEECH_KEY
+      2. SPEECH_ENDPOINT only (Entra ID via az login)
+      3. SPEECH_KEY + SPEECH_REGION
+    """
+    if settings.speech_endpoint and settings.speech_key:
+        config = speechsdk.SpeechConfig(endpoint=settings.speech_endpoint, subscription=settings.speech_key)
+    elif settings.speech_endpoint and not settings.speech_key:
+        # Keyless local auth path: uses Azure CLI token from `az login`.
+        config = speechsdk.SpeechConfig(
+            token_credential=AzureCliCredential(),
+            endpoint=settings.speech_endpoint,
+        )
+    elif settings.speech_key and settings.speech_region:
+        config = speechsdk.SpeechConfig(subscription=settings.speech_key, region=settings.speech_region)
+    else:
+        raise ValueError(
+            "Set one of: (1) SPEECH_KEY + SPEECH_REGION, (2) SPEECH_KEY + SPEECH_ENDPOINT, "
+            "or (3) SPEECH_ENDPOINT only for Entra ID auth via az login."
+        )
+
+    if settings.speech_custom_endpoint_id:
+        config.endpoint_id = settings.speech_custom_endpoint_id
+
+    return config
+
+
 class SttAgent:
     def __init__(
         self,
@@ -92,26 +122,7 @@ class SttAgent:
         return transcript
 
     def _build_speech_config(self) -> speechsdk.SpeechConfig:
-        if self.settings.speech_endpoint and self.settings.speech_key:
-            config = speechsdk.SpeechConfig(endpoint=self.settings.speech_endpoint, subscription=self.settings.speech_key)
-        elif self.settings.speech_endpoint and not self.settings.speech_key:
-            # Keyless local auth path: uses Azure CLI token from `az login`.
-            config = speechsdk.SpeechConfig(
-                token_credential=AzureCliCredential(),
-                endpoint=self.settings.speech_endpoint,
-            )
-        elif self.settings.speech_key and self.settings.speech_region:
-            config = speechsdk.SpeechConfig(subscription=self.settings.speech_key, region=self.settings.speech_region)
-        else:
-            raise ValueError(
-                "Set one of: (1) SPEECH_KEY + SPEECH_REGION, (2) SPEECH_KEY + SPEECH_ENDPOINT, "
-                "or (3) SPEECH_ENDPOINT only for Entra ID auth via az login."
-            )
-
-        if self.settings.speech_custom_endpoint_id:
-            config.endpoint_id = self.settings.speech_custom_endpoint_id
-
-        return config
+        return build_speech_config(self.settings)
 
     def _attach_phrase_list(self, recognizer: speechsdk.Recognizer) -> None:
         if not self.enable_phrase_list:

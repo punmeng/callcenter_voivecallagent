@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -8,15 +9,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import azure.cognitiveservices.speech as speechsdk
 from agent_framework import Agent
 from azure.ai.agentserver.invocations import InvocationAgentServerHost
 from dotenv import load_dotenv
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
-from starlette.routing import Route
-from starlette.websockets import WebSocket
+from starlette.routing import Route, WebSocketRoute
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from .agent_runtime import build_foundry_agent
+from .config import load_settings
+from .uc1_stt_agent import build_speech_config
 
 
 _UI_HTML_PATH = Path("assets/uc2_call_center_ui.html")
@@ -41,6 +45,7 @@ class LiveAssistSession:
     total_tokens: int = 0
     llm_latency_total_ms: float = 0.0
     audio_duration_seconds: float = 0.0
+    speaker_role_map: dict[str, str] = field(default_factory=dict)
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def add_message(self, speaker: str, text: str, kind: str = "transcript") -> None:
@@ -78,9 +83,17 @@ def build_agent() -> Agent:
 
 
 def create_app() -> InvocationAgentServerHost:
-    app = InvocationAgentServerHost(routes=[Route("/", _serve_ui, methods=["GET"], name="uc2_ui")])
     agent = build_agent()
     sessions: dict[str, LiveAssistSession] = {}
+
+    async def audio_ws_endpoint(websocket: WebSocket) -> None:
+        await _handle_audio_ws(websocket, agent, sessions)
+
+    routes = [
+        Route("/", _serve_ui, methods=["GET"], name="uc2_ui"),
+        WebSocketRoute("/audio_ws", audio_ws_endpoint, name="uc2_audio_ws"),
+    ]
+    app = InvocationAgentServerHost(routes=routes)
 
     @app.invoke_handler
     async def invoke(request: Request) -> JSONResponse | Response:
@@ -111,6 +124,189 @@ def main() -> None:
     create_app().run()
 
 
+# ── Real-time speaker diarization (Azure Speech ConversationTranscriber) ──────
+
+# Browser streams 16 kHz / 16-bit / mono PCM frames over the audio WebSocket.
+_DIARIZATION_SAMPLE_RATE = 16000
+_DIARIZATION_BITS_PER_SAMPLE = 16
+_DIARIZATION_CHANNELS = 1
+
+
+def _assign_speaker_role(session: LiveAssistSession, speaker_id: str) -> str:
+    """Map an Azure Speech speaker id (e.g. ``Guest-1``) to a call-center role.
+
+    The first distinct speaker seen is labelled ``agent``, the second
+    ``customer``; any further speakers get ``speaker-N``. The mapping is stable
+    for the lifetime of the session and can be flipped via ``_swap_speaker_roles``.
+    """
+    sid = (speaker_id or "Unknown").strip() or "Unknown"
+    mapping = session.speaker_role_map
+    existing = mapping.get(sid)
+    if existing:
+        return existing
+
+    assigned_roles = set(mapping.values())
+    if "agent" not in assigned_roles:
+        role = "agent"
+    elif "customer" not in assigned_roles:
+        role = "customer"
+    else:
+        role = f"speaker-{len(mapping) + 1}"
+    mapping[sid] = role
+    return role
+
+
+def _swap_speaker_roles(session: LiveAssistSession) -> None:
+    """Flip agent/customer labels (used when diarization guessed the wrong side)."""
+    for sid, role in list(session.speaker_role_map.items()):
+        if role == "agent":
+            session.speaker_role_map[sid] = "customer"
+        elif role == "customer":
+            session.speaker_role_map[sid] = "agent"
+
+
+async def _safe_ws_send(websocket: WebSocket, payload: dict[str, Any]) -> None:
+    try:
+        await websocket.send_text(json.dumps(payload, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+async def _on_diarized_segment(
+    websocket: WebSocket,
+    agent: Agent,
+    sessions: dict[str, LiveAssistSession],
+    session_id: str,
+    speaker_id: str,
+    text: str,
+    duration_seconds: float,
+) -> None:
+    session = sessions.setdefault(session_id, LiveAssistSession(session_id=session_id))
+    role = _assign_speaker_role(session, speaker_id)
+    payload: dict[str, Any] = {
+        "type": "transcript",
+        "speaker": role,
+        "speaker_id": speaker_id,
+        "text": text,
+        "partial": False,
+        "audio_duration_seconds": duration_seconds,
+        "stt_service": "azure-speech",
+        "stt_model": "Conversation Transcription (diarization)",
+        "speech_model": "Azure Speech Conversation Transcription (diarization)",
+    }
+    response = await _run_assist(agent, sessions, session_id, payload)
+    response["transcript_event"] = {"speaker": role, "speaker_id": speaker_id, "text": text}
+    await _safe_ws_send(websocket, response)
+
+
+async def _handle_audio_ws(
+    websocket: WebSocket,
+    agent: Agent,
+    sessions: dict[str, LiveAssistSession],
+) -> None:
+    """Receive raw PCM audio frames and run real-time Azure Speech diarization."""
+    await websocket.accept()
+    session_id = _resolve_ws_session_id(websocket)
+    sessions.setdefault(session_id, LiveAssistSession(session_id=session_id))
+    loop = asyncio.get_running_loop()
+
+    try:
+        settings = load_settings()
+        speech_config = build_speech_config(settings)
+    except Exception as exc:  # noqa: BLE001 - surface config errors to the UI
+        await _safe_ws_send(websocket, {"status": f"speech_config_error: {exc}", "cards": []})
+        await websocket.close()
+        return
+
+    speech_config.output_format = speechsdk.OutputFormat.Detailed
+    stream_format = speechsdk.audio.AudioStreamFormat(
+        samples_per_second=_DIARIZATION_SAMPLE_RATE,
+        bits_per_sample=_DIARIZATION_BITS_PER_SAMPLE,
+        channels=_DIARIZATION_CHANNELS,
+    )
+    push_stream = speechsdk.audio.PushAudioInputStream(stream_format=stream_format)
+    audio_config = speechsdk.audio.AudioConfig(stream=push_stream)
+    auto_lang_config = speechsdk.languageconfig.AutoDetectSourceLanguageConfig(
+        languages=settings.speech_languages
+    )
+    transcriber = speechsdk.transcription.ConversationTranscriber(
+        speech_config=speech_config,
+        audio_config=audio_config,
+        auto_detect_source_language_config=auto_lang_config,
+    )
+
+    def _on_transcribed(evt: speechsdk.SessionEventArgs) -> None:
+        result = evt.result
+        if result.reason != speechsdk.ResultReason.RecognizedSpeech:
+            return
+        text = (result.text or "").strip()
+        if not text:
+            return
+        speaker_id = result.speaker_id or "Unknown"
+        duration_seconds = (result.duration or 0) / 10_000_000
+        asyncio.run_coroutine_threadsafe(
+            _on_diarized_segment(
+                websocket, agent, sessions, session_id, speaker_id, text, duration_seconds
+            ),
+            loop,
+        )
+
+    def _on_canceled(evt: speechsdk.SessionEventArgs) -> None:
+        asyncio.run_coroutine_threadsafe(
+            _safe_ws_send(websocket, {"status": f"stt_canceled: {evt}", "cards": []}),
+            loop,
+        )
+
+    transcriber.transcribed.connect(_on_transcribed)
+    transcriber.canceled.connect(_on_canceled)
+    transcriber.start_transcribing_async().get()
+    await _safe_ws_send(websocket, {"status": "diarization_ready", "cards": []})
+
+    try:
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+
+            audio_bytes = message.get("bytes")
+            if audio_bytes:
+                push_stream.write(audio_bytes)
+                continue
+
+            text_message = message.get("text")
+            if not text_message:
+                continue
+
+            control = _safe_json_loads(text_message)
+            action = str(control.get("type") or control.get("action") or "").strip().lower()
+            if action == "swap_speakers":
+                session = sessions.setdefault(session_id, LiveAssistSession(session_id=session_id))
+                _swap_speaker_roles(session)
+                await _safe_ws_send(websocket, {"status": "speakers_swapped", "cards": []})
+            elif action == "reset":
+                response = await _run_assist(agent, sessions, session_id, {"type": "reset"})
+                await _safe_ws_send(websocket, response)
+            elif action in {"end_call", "summary", "post_call"}:
+                response = await _run_assist(
+                    agent,
+                    sessions,
+                    session_id,
+                    {"type": "end_call", "speaker": "system", "text": "Call ended. Generate summary."},
+                )
+                await _safe_ws_send(websocket, response)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        try:
+            push_stream.close()
+        except Exception:
+            pass
+        try:
+            transcriber.stop_transcribing_async().get()
+        except Exception:
+            pass
+
+
 async def _run_assist(
     agent: Agent,
     sessions: dict[str, LiveAssistSession],
@@ -133,6 +329,7 @@ async def _run_assist(
         session.total_tokens = 0
         session.llm_latency_total_ms = 0.0
         session.audio_duration_seconds = 0.0
+        session.speaker_role_map.clear()
         session.updated_at = datetime.now(timezone.utc)
         return {
             "session_id": session.session_id,

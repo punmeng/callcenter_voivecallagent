@@ -76,6 +76,20 @@ Post-call summary:
 
 ![UC2 live call console call summary](images/06_uc2_live-console_callsummary.png)
 
+## Voice optimization skills
+
+UC2 streams microphone audio to the server and runs Azure Speech in real time for live diarization (implemented in [../src/voiceqa/uc2_live_assistant.py](../src/voiceqa/uc2_live_assistant.py)):
+
+| Skill | What it does | Where to configure |
+| --- | --- | --- |
+| Real-time speaker diarization | The browser streams PCM audio over the `/audio_ws` WebSocket; the server runs `ConversationTranscriber` and labels each segment by speaker id. | Automatic when you click Start Mic. |
+| Auto agent/customer mapping | The first detected speaker becomes Agent, the second becomes Customer, with stable labels for the whole call. | Automatic; use Swap Agent/Customer if reversed. |
+| Continuous Language ID | `AutoDetectSourceLanguageConfig` detects zh-TW vs en-US per utterance for code-switching calls. | `SPEECH_LANGUAGES` env var. |
+| PCM audio streaming | Mic audio is downsampled in-browser to 16 kHz / 16-bit / mono PCM and streamed frame-by-frame for low-latency recognition. | Automatic. |
+| Rolling transcript window | Keeps the most recent N turns as context for the assist LLM, balancing latency and relevance. | `VOICE_ASSIST_WINDOW_TURNS` (default 12). |
+| Shared Speech auth ladder | Reuses UC1's auth (endpoint+key, keyless Entra ID via `az login`, or key+region) and optional Custom Speech endpoint. | `SPEECH_ENDPOINT` / `SPEECH_KEY` / `SPEECH_REGION`, `SPEECH_CUSTOM_ENDPOINT_ID`. |
+| STT provider label | Controls the STT service name shown in the metrics UI. | `[uc2].provider` in `config/stt_config.toml` or `VOICE_ASSIST_STT_SERVICE`. |
+
 ## Startup checklist
 
 - `az login` is successful.

@@ -276,6 +276,10 @@
 
     .line:last-child { border-bottom: 0; }
     .line .spk { font-weight: 700; color: #8ec5ff; margin-right: 8px; }
+    .line.agent { background: rgba(80, 160, 255, 0.08); }
+    .line.agent .spk { color: #8ec5ff; }
+    .line.customer { background: rgba(120, 230, 170, 0.08); }
+    .line.customer .spk { color: #7ee6aa; }
 
     .cards {
       display: grid;
@@ -433,6 +437,10 @@
             <button id="endCallBtn" class="btn-warn" disabled data-i18n="endCallBtn">End Call + Summary</button>
           </div>
 
+          <div class="controls">
+            <button id="swapSpeakersBtn" class="btn-ghost" disabled data-i18n="swapSpeakersBtn">Swap Agent/Customer</button>
+          </div>
+
           <div class="row">
             <textarea id="manualText" rows="3" placeholder="Manual transcript input (optional)" data-i18n-placeholder="manualTextPlaceholder"></textarea>
             <button id="sendManualBtn" class="btn-sub" disabled data-i18n="sendManualBtn">Send Transcript</button>
@@ -500,6 +508,7 @@
         micStartBtn: "Start Mic",
         micStopBtn: "Stop Mic",
         endCallBtn: "End Call + Summary",
+        swapSpeakersBtn: "Swap Agent/Customer",
         sendManualBtn: "Send Transcript",
         transcriptTitle: "Live Transcript",
         guidanceTitle: "Copilot Guidance",
@@ -508,12 +517,14 @@
         runtimeLabel: "Runtime Models",
         tokenLabel: "Token Metrics",
         footerText: "Powered by Microsoft Innovation Hub",
-        tipText: "Browser mic uses Web Speech API. If unsupported, use manual transcript input.",
+        tipText: "Start Mic streams audio to Azure Speech for automatic speaker identification (Agent vs Customer). Use Swap if the sides are reversed. Manual input uses the speaker dropdown.",
         callIdPlaceholder: "Call ID",
         sessionIdPlaceholder: "Session ID",
         speechLangPlaceholder: "Speech language (e.g. zh-TW)",
         manualTextPlaceholder: "Manual transcript input (optional)",
-        sttWebSpeech: "Web Speech"
+        sttWebSpeech: "Web Speech",
+        speakerAgent: "Agent",
+        speakerCustomer: "Customer"
       },
       zh: {
         heroTitle: "嗨 Alex，試試問\"你能做什麼?\"",
@@ -528,6 +539,7 @@
         micStartBtn: "啟動麥克風",
         micStopBtn: "停止麥克風",
         endCallBtn: "結束通話 + 摘要",
+        swapSpeakersBtn: "交換專員/客戶",
         sendManualBtn: "傳送記錄",
         transcriptTitle: "即時記錄",
         guidanceTitle: "副駕駛指導",
@@ -536,12 +548,14 @@
         runtimeLabel: "執行時間模型",
         tokenLabel: "令牌指標",
         footerText: "技術支援：Microsoft Innovation Hub",
-        tipText: "瀏覽器麥克風使用 Web Speech API。如不支援，請使用手動文字輸入。",
+        tipText: "啟動麥克風會將語音串流至 Azure Speech 進行自動者辨識（專員 vs 客戶）。若兩方顓倒請按交換。手動輸入使用說話者下拉選單。",
         callIdPlaceholder: "通話 ID",
         sessionIdPlaceholder: "工作階段 ID",
         speechLangPlaceholder: "語音語言 (例如 zh-TW)",
         manualTextPlaceholder: "手動記錄輸入 (選用)",
-        sttWebSpeech: "網頁語音"
+        sttWebSpeech: "網頁語音",
+        speakerAgent: "專員",
+        speakerCustomer: "客戶"
       }
     };
 
@@ -570,6 +584,7 @@
       document.getElementById('micStartBtn').textContent = strings.micStartBtn;
       document.getElementById('micStopBtn').textContent = strings.micStopBtn;
       document.getElementById('endCallBtn').textContent = strings.endCallBtn;
+      document.getElementById('swapSpeakersBtn').textContent = strings.swapSpeakersBtn;
       document.getElementById('sendManualBtn').textContent = strings.sendManualBtn;
       document.getElementById('transcriptTitle').textContent = strings.transcriptTitle;
       document.getElementById('guidanceTitle').textContent = strings.guidanceTitle;
@@ -588,7 +603,7 @@
     function updateSttMethod() {
       const sttLabel = document.getElementById('sttMethodLabel');
       const speechLang = document.getElementById('langInput').value.trim() || 'zh-TW';
-      sttLabel.textContent = `Web Speech (${speechLang})`;
+      sttLabel.textContent = `Azure Speech Diarization (${speechLang})`;
     }
 
     // Language button event listeners
@@ -616,13 +631,28 @@
     const micStartBtn = document.getElementById('micStartBtn');
     const micStopBtn = document.getElementById('micStopBtn');
     const endCallBtn = document.getElementById('endCallBtn');
+    const swapSpeakersBtn = document.getElementById('swapSpeakersBtn');
     const sendManualBtn = document.getElementById('sendManualBtn');
 
     let ws = null;
-    let recognition = null;
     let micRunning = false;
     let micStartTime = null;
     let lastSentAudioSeconds = 0;
+
+    // Real-time diarization audio pipeline (Azure Speech ConversationTranscriber).
+    let audioWs = null;
+    let audioContext = null;
+    let mediaStream = null;
+    let processorNode = null;
+    let sourceNode = null;
+
+    function speakerLabel(role) {
+      const strings = i18n[currentLang] || i18n.en;
+      const key = String(role || '').trim().toLowerCase();
+      if (key === 'agent') return strings.speakerAgent;
+      if (key === 'customer') return strings.speakerCustomer;
+      return role || 'speaker';
+    }
 
     function escapeHtml(text) {
       return (text || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -638,10 +668,11 @@
       assistStatus.className = `status ${css || ''}`.trim();
     }
 
-    function appendTranscriptLine(speaker, text) {
+    function appendTranscriptLine(speaker, text, role) {
       if (!text || !text.trim()) return;
       const div = document.createElement('div');
-      div.className = 'line';
+      const roleKey = String(role || '').trim().toLowerCase();
+      div.className = roleKey ? `line ${roleKey}` : 'line';
       div.innerHTML = `<span class="spk">${escapeHtml(speaker)}:</span>${escapeHtml(text)}`;
       transcriptBox.appendChild(div);
       transcriptBox.scrollTop = transcriptBox.scrollHeight;
@@ -718,6 +749,7 @@
       micStopBtn.disabled = !connected || !micRunning;
       endCallBtn.disabled = !connected;
       sendManualBtn.disabled = !connected;
+      swapSpeakersBtn.disabled = !micRunning;
     }
 
     function wsUrl() {
@@ -740,6 +772,26 @@
       }));
     }
 
+    function applyServerData(data) {
+      if (!data || typeof data !== 'object') return;
+      // Diarization path: the server decides the speaker and sends it back.
+      if (data.transcript_event && typeof data.transcript_event === 'object') {
+        const ev = data.transcript_event;
+        const role = ev.speaker || '';
+        appendTranscriptLine(speakerLabel(role), ev.text || '', role);
+      }
+      renderCards(data.cards || []);
+      updateRuntimeInfo(data.runtime || null);
+      updateTokenMetrics(data.token_metrics || null);
+      if (typeof data.summary_markdown === 'string' && data.summary_markdown.trim()) {
+        updateSummary(data.summary_markdown);
+      }
+      if (data.status) {
+        const css = data.status.includes('error') ? 'err' : (data.status.includes('summary') ? 'ok' : 'warn');
+        setAssistState(data.status, css);
+      }
+    }
+
     function connect() {
       if (ws && ws.readyState === WebSocket.OPEN) return;
       ws = new WebSocket(wsUrl());
@@ -753,17 +805,7 @@
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          renderCards(data.cards || []);
-          updateRuntimeInfo(data.runtime || null);
-          updateTokenMetrics(data.token_metrics || null);
-          if (typeof data.summary_markdown === 'string' && data.summary_markdown.trim()) {
-            updateSummary(data.summary_markdown);
-          }
-          if (data.status) {
-            const css = data.status.includes('error') ? 'err' : (data.status.includes('summary') ? 'ok' : 'warn');
-            setAssistState(data.status, css);
-          }
+          applyServerData(JSON.parse(event.data));
         } catch {
           setAssistState('Parse error', 'err');
         }
@@ -790,7 +832,7 @@
     function sendTranscript(text, speaker) {
       const clean = (text || '').trim();
       if (!clean) return;
-      appendTranscriptLine(speaker, clean);
+      appendTranscriptLine(speakerLabel(speaker), clean, speaker);
 
       let audioDuration = 0;
       if (micStartTime) {
@@ -807,84 +849,113 @@
       });
     }
 
-    function startMic() {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) {
-        setAssistState('No Web Speech API; use manual input', 'warn');
+    // ── Real-time speaker diarization via Azure Speech ───────────────────────
+    // Capture mic audio, downsample to 16 kHz / 16-bit / mono PCM, and stream it
+    // to the server's /audio_ws endpoint. The server runs Azure Speech
+    // ConversationTranscriber and returns transcript lines tagged Agent/Customer.
+
+    function audioWsUrl() {
+      const sid = encodeURIComponent(sessionId.value.trim() || `session-${Date.now()}`);
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const basePath = window.location.pathname.replace(/\/+$/, '');
+      return `${protocol}://${window.location.host}${basePath}/audio_ws?agent_session_id=${sid}`;
+    }
+
+    function floatTo16BitPCM(input, inputRate, targetRate) {
+      const ratio = inputRate / targetRate;
+      const outLength = Math.max(0, Math.floor(input.length / ratio));
+      const out = new Int16Array(outLength);
+      for (let i = 0; i < outLength; i++) {
+        const sample = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)] || 0));
+        out[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      }
+      return out;
+    }
+
+    async function startMic() {
+      if (micRunning) return;
+
+      // 1) Open the diarization audio socket.
+      try {
+        audioWs = new WebSocket(audioWsUrl());
+        audioWs.binaryType = 'arraybuffer';
+      } catch {
+        setAssistState('Cannot open audio socket', 'err');
+        return;
+      }
+      audioWs.onmessage = (event) => {
+        try { applyServerData(JSON.parse(event.data)); } catch { /* ignore */ }
+      };
+      audioWs.onerror = () => setAssistState('Audio socket error', 'err');
+
+      const opened = await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(false), 5000);
+        audioWs.onopen = () => { clearTimeout(timer); resolve(true); };
+      });
+      if (!opened) {
+        setAssistState('Audio socket timeout', 'err');
+        try { audioWs.close(); } catch {}
+        audioWs = null;
         return;
       }
 
-      micRunning = true;
-      micStartTime = Date.now();
-      lastSentAudioSeconds = 0;
-      micStartBtn.disabled = true;
-      micStopBtn.disabled = false;
-
-      function spawnRecognition() {
-        if (!micRunning) return;           // user stopped — do not restart
-
-        // Always create a fresh instance; reusing a stopped instance throws
-        // InvalidStateError in Chrome/Edge which silently kills the mic.
-        const r = new SR();
-        recognition = r;
-        r.lang = langInput.value.trim() || 'zh-TW';
-        r.continuous = true;
-        r.interimResults = true;
-
-        r.onstart = () => setAssistState('Mic listening', 'ok');
-
-        r.onresult = (event) => {
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const result = event.results[i];
-            const text = result[0]?.transcript || '';
-            if (result.isFinal) {
-              sendTranscript(text, speakerSelect.value);
-            }
-          }
-        };
-
-        r.onerror = (event) => {
-          // 'no-speech' is normal during silence; ignore it.
-          // 'aborted' fires when we call stop() intentionally; also ignore.
-          if (event.error !== 'no-speech' && event.error !== 'aborted' && event.error !== 'audio-capture') {
-            setAssistState(`Mic error: ${event.error}`, 'err');
-          }
-        };
-
-        r.onend = () => {
-          // Browser terminates continuous recognition on silence timeout, token
-          // refresh, or tab visibility change. Respawn a fresh instance after
-          // a short delay so Chrome/Edge InvalidStateError can never occur.
-          if (micRunning) {
-            setTimeout(spawnRecognition, 300);
-          } else {
-            micStartBtn.disabled = !(ws && ws.readyState === WebSocket.OPEN);
-            micStopBtn.disabled = true;
-            setAssistState('Mic stopped', 'ok');
-          }
-        };
-
-        try {
-          r.start();
-        } catch {
-          // If start() itself fails (e.g. browser still tearing down), retry
-          if (micRunning) setTimeout(spawnRecognition, 500);
-        }
+      // 2) Capture the microphone and stream PCM frames.
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+        });
+      } catch {
+        setAssistState('Mic permission denied', 'err');
+        try { audioWs.close(); } catch {}
+        audioWs = null;
+        return;
       }
 
-      spawnRecognition();
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      audioContext = new AudioCtx();
+      sourceNode = audioContext.createMediaStreamSource(mediaStream);
+      processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+      sourceNode.connect(processorNode);
+      processorNode.connect(audioContext.destination);
+
+      processorNode.onaudioprocess = (e) => {
+        if (!audioWs || audioWs.readyState !== WebSocket.OPEN) return;
+        const input = e.inputBuffer.getChannelData(0);
+        const pcm = floatTo16BitPCM(input, audioContext.sampleRate, 16000);
+        if (pcm.length) audioWs.send(pcm.buffer);
+      };
+
+      micRunning = true;
+      micStartBtn.disabled = true;
+      micStopBtn.disabled = false;
+      swapSpeakersBtn.disabled = false;
+      setAssistState('Mic streaming (diarization)', 'ok');
     }
 
     function stopMic() {
-      micRunning = false;          // set BEFORE stop() so onend does not respawn
-      micStartTime = null;
-      lastSentAudioSeconds = 0;
-      if (recognition) {
-        try { recognition.stop(); } catch {}
-        recognition = null;
+      micRunning = false;
+      try { if (processorNode) { processorNode.onaudioprocess = null; processorNode.disconnect(); } } catch {}
+      try { if (sourceNode) sourceNode.disconnect(); } catch {}
+      try { if (audioContext) audioContext.close(); } catch {}
+      try { if (mediaStream) mediaStream.getTracks().forEach((t) => t.stop()); } catch {}
+      processorNode = null;
+      sourceNode = null;
+      audioContext = null;
+      mediaStream = null;
+      if (audioWs) {
+        try { audioWs.close(); } catch {}
+        audioWs = null;
       }
       micStartBtn.disabled = !(ws && ws.readyState === WebSocket.OPEN);
       micStopBtn.disabled = true;
+      swapSpeakersBtn.disabled = true;
+    }
+
+    function swapSpeakers() {
+      if (audioWs && audioWs.readyState === WebSocket.OPEN) {
+        audioWs.send(JSON.stringify({ type: 'swap_speakers' }));
+        setAssistState('Swapping speakers', 'warn');
+      }
     }
 
     function resetSession() {
@@ -911,6 +982,7 @@
     micStartBtn.addEventListener('click', startMic);
     micStopBtn.addEventListener('click', stopMic);
     endCallBtn.addEventListener('click', endCall);
+    swapSpeakersBtn.addEventListener('click', swapSpeakers);
 
     sendManualBtn.addEventListener('click', () => {
       sendTranscript(manualText.value, speakerSelect.value);
