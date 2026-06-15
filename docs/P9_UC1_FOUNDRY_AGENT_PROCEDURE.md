@@ -64,7 +64,7 @@ UC1 runtime now prefers this portal-agent path.
 
 Expected:
 - UC1 completes successfully
-- `reports/001.metrics.json` has non-zero `token_usage`
+- `reports/002.metrics.json` has non-zero `token_usage`
 - Foundry portal shows activity for the configured agent/version
 
 ## 5. Optional: Override Defaults

@@ -81,6 +81,8 @@ Recommendation for `keywords` in zh-TW evaluation:
 
 ## Run
 
+> The repo ships `data/stt_benchmark.template.jsonl`. Copy it to `data/stt_benchmark.jsonl` and fill in your own samples before running.
+
 ```powershell
 $env:PYTHONPATH = "src"
 python scripts/eval_stt_quality.py --dataset data/stt_benchmark.jsonl --providers azure-speech-stt voice-live-api mai-transcribe-1.5

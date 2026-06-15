@@ -73,7 +73,7 @@ Modules: `uc1_stt_agent.py` (recognition), `corrections.py` (post-processor).
   2. Match clause hit → `符合`
   3. Otherwise → `不符合` + reason
 - Summary items (1–3) use a separate ≤20-字 schema.
-- `markdown_writer.py` renders one `.md` report per call: a header table (案例編號,
+- `uc1_markdown_writer.py` renders one `.md` report per call: a header table (案例編號,
   音檔, 時長, 判定結果 符合/不符合 tally), a 摘要 section for items 1–3, and a 評分明細
   table (判定結果 + 判定原因 + 佐證) where `不符合` rows are flagged with ❌. The full
   逐字稿 is appended (optional via config). A batch run also emits an `index.md` roll-up.

@@ -32,7 +32,7 @@ Use `catalog/` as the planning/control layer.
 1. Add `catalog/use_cases/<id>.yaml` using template.
 2. Add/extend code in `src/voiceqa/`.
 3. Add `start_<id>.ps1` if new runtime path is needed.
-4. Add docs in `docs/README_<id>.md` + design spec.
+4. Add docs in `docs/P<n>_README_<id>.md` (use the next reading-order prefix) + design spec.
 5. Add or reuse benchmark method in `catalog/methods/`.
 6. Add cost section for the use case in `docs/P12_cost_estimate.md`.
 
@@ -40,7 +40,7 @@ Use `catalog/` as the planning/control layer.
 
 - Use case IDs: `uc<number>-<short-name>`.
 - Method IDs: `<domain>-benchmark-v<major>`.
-- Doc names: `README_UC<n>.md`, `design_spec_<id>.md`.
+- Doc names: `P<n>_README_UC<n>.md`, `P<n>_design_spec_<id>.md` (the `P<n>` prefix follows reading order; zh-TW mirrors reuse the English sibling's number).
 
 ## Cost estimation policy
 
