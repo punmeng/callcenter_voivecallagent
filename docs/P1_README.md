@@ -58,6 +58,10 @@ It provides:
 - language switcher (English and Traditional Chinese) with browser persistence
 - audio preview player in UC1 and Benchmark source tables
 
+Dashboard home page:
+
+![Consolidated dashboard home page](images/01_indexpage.png)
+
 Notes:
 
 - The dashboard no longer exposes separate `/uc1/config` and `/uc2/config` pages.

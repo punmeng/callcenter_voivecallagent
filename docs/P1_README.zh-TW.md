@@ -47,6 +47,10 @@ $env:PYTHONPATH = "src"
 python -m voiceqa.uc2_main
 ```
 
+## 統合儀表板首頁
+
+![統合儀表板首頁](images/01_indexpage.png)
+
 ## 主要檔案
 
 - [../src/voiceqa/uc1_main.py](../src/voiceqa/uc1_main.py) - UC1 流程主程式

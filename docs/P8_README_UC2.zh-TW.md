@@ -53,7 +53,17 @@ python -m voiceqa.uc2_main
 
 ## 畫面截圖
 
-![UC2 即時通話助理介面](images/uc2-live-console.png)
+即時通話主控台（閒置）：
+
+![UC2 即時通話主控台](images/04_uc2_live-console.png)
+
+通話進行中：
+
+![UC2 即時通話主控台通話中](images/05_uc2_live-console_incall.png)
+
+通話結束摘要：
+
+![UC2 即時通話主控台通話摘要](images/06_uc2_live-console_callsummary.png)
 
 ## 啟動檢查清單
 

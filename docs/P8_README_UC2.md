@@ -62,9 +62,19 @@ Then open `http://127.0.0.1:<PORT>/uc2/live` from the dashboard home.
 - If `PORT` is not set, the script picks an available local port automatically.
 - The dashboard header includes language switch (English/繁體中文) and STT method label.
 
-## Screenshot
+## Screenshots
 
-![UC2 Live Call Console](images/uc2-live-console.png)
+Live call console (idle):
+
+![UC2 live call console](images/04_uc2_live-console.png)
+
+During an active call:
+
+![UC2 live call console in call](images/05_uc2_live-console_incall.png)
+
+Post-call summary:
+
+![UC2 live call console call summary](images/06_uc2_live-console_callsummary.png)
 
 ## Startup checklist
 

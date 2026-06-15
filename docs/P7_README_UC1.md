@@ -15,6 +15,16 @@ This implementation follows your UC1 spec and now uses a shared Microsoft Agent 
 - LLM rubric judging with exception-first logic, now via Microsoft Agent Framework
 - Markdown report output per call, plus optional `index.md`
 
+## Screenshots
+
+UC1 quality-check page (consolidated dashboard):
+
+![UC1 quality check page](images/02_uc1_qualitycheck.png)
+
+Generated QA report view:
+
+![UC1 quality check report](images/03_uc1_qualitycheck_report.png)
+
 ## 1. Setup
 
 ```powershell

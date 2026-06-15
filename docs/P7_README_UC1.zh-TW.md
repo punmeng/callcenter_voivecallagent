@@ -64,3 +64,13 @@ UC1 也接受 UC1 專用命名：
 更多步驟可參考：
 
 - [P9_UC1_FOUNDRY_AGENT_PROCEDURE.md](P9_UC1_FOUNDRY_AGENT_PROCEDURE.md)
+
+## 畫面截圖
+
+UC1 品質檢查頁面（整合式儀表板）：
+
+![UC1 品質檢查頁面](images/02_uc1_qualitycheck.png)
+
+產生的 QA 報告檢視：
+
+![UC1 品質檢查報告](images/03_uc1_qualitycheck_report.png)
