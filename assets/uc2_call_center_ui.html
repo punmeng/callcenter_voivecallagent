@@ -723,7 +723,10 @@
     function wsUrl() {
       const sid = encodeURIComponent(sessionId.value.trim() || `session-${Date.now()}`);
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      return `${protocol}://${window.location.host}/invocations_ws?agent_session_id=${sid}`;
+      // Derive the base path from the page location so the WebSocket resolves correctly
+      // whether the UI is served standalone (at "/") or mounted under a prefix (e.g. "/uc2/live").
+      const basePath = window.location.pathname.replace(/\/+$/, '');
+      return `${protocol}://${window.location.host}${basePath}/invocations_ws?agent_session_id=${sid}`;
     }
 
     function sendPayload(payload) {
