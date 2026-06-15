@@ -1,0 +1,21 @@
+id: <use-case-id>
+name: <use case display name>
+status: draft
+business_goal:
+  - <goal-1>
+  - <goal-2>
+runtime:
+  mode: <batch|realtime|hybrid>
+  method_id: <method-id>
+entrypoints:
+  run: <python -m ...>
+  script: <start_xxx.ps1>
+docs:
+  - docs/<doc-1>.md
+  - docs/<doc-2>.md
+capabilities:
+  required:
+    - <capability-a>
+    - <capability-b>
+  optional:
+    - <capability-c>

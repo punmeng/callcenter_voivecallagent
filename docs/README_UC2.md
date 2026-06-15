@@ -49,6 +49,19 @@ Server default:
 - HTTP UI: `http://127.0.0.1:8080/`
 - WebSocket: `ws://127.0.0.1:8080/invocations_ws`
 
+## Run from consolidated dashboard
+
+You can also run UC2 from the shared dashboard:
+
+```powershell
+.\start_voice_ui.ps1
+```
+
+Then open `http://127.0.0.1:<PORT>/uc2/live` from the dashboard home.
+
+- If `PORT` is not set, the script picks an available local port automatically.
+- The dashboard header includes language switch (English/繁體中文) and STT method label.
+
 ## Screenshot
 
 ![UC2 Live Call Console](images/uc2-live-console.png)

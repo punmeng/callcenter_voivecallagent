@@ -1,0 +1,2194 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import mimetypes
+import re
+import traceback
+from dataclasses import dataclass
+from datetime import datetime
+from html import escape
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote
+
+from azure.ai.agentserver.invocations import InvocationAgentServerHost
+from dotenv import load_dotenv
+from starlette.requests import Request
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from starlette.routing import Mount, Route
+
+try:
+    import markdown
+    HAS_MARKDOWN = True
+except ImportError:
+    HAS_MARKDOWN = False
+
+from .config import Settings, load_settings
+from .uc1_blob_reader import BlobReader
+from .uc1_main import Uc1RunSummary, run_uc1
+from .stt_config import load_stt_config, provider_to_display_label
+from .stt_benchmark import BenchmarkSample, append_cost_report, build_provider, parse_dataset, run_benchmark
+from .uc2_live_assistant import create_app as create_uc2_live_app
+
+
+_DASHBOARD_TITLE = "VoiceCall Verify"
+_BENCHMARK_ROOT = Path("reports/benchmarks")
+_UC1_SUPPORTED_PROVIDERS = [
+    "azure-speech-stt",
+    "azure-speech-stt-custom",
+    "azure-speech-stt-fast",
+    "azure-speech-stt-fast-phrase-list",
+    "azure-speech-stt-rest",
+    "mai-transcribe-1.5",
+    "gpt-audio-transcribe",
+    "voice-live-api",
+]
+_BENCHMARK_SUPPORTED_PROVIDERS = [
+    "azure-speech-stt",
+    "azure-speech-stt-fast",
+    "azure-speech-stt-fast-phrase-list",
+    "azure-speech-stt-rest",
+    "azure-speech-stt-custom",
+    "mai-transcribe-1.5",
+    "gpt-audio-transcribe",
+    "voice-live-api",
+]
+
+
+@dataclass
+class UseCaseCard:
+    id: str
+    name: str
+    short_name: str
+    summary: str
+    value: str
+    route: str
+    voice_model: str
+    details: list[str]
+    actions: list[tuple[str, str]]
+
+
+@dataclass
+class BenchmarkRun:
+    run_id: str
+    summary_path: Path
+    providers: list[dict[str, Any]]
+    cost_rows: list[dict[str, str]]
+    recommendation: str | None
+    excerpt: str
+
+
+@dataclass
+class Uc1AudioItem:
+  path: str
+  name: str
+  duration_seconds: float | None
+  size_bytes: int | None
+
+
+@dataclass
+class BenchmarkRunSummary:
+    run_id: str
+    source_path: str
+    providers: list[str]
+    total_items: int
+    success_count: int
+    error_count: int
+    summary_path: str
+    provider_rows: list[dict[str, Any]]
+    result_files: list[str]
+    reference_dataset_path: str | None = None
+
+
+_USE_CASE_CARDS = [
+    UseCaseCard(
+        id="uc1",
+        name="UC1 Blob Audio to Markdown QA Report",
+        short_name="UC1",
+        summary="Offline batch processing for call recordings.",
+        value="Turns a recorded call into a scored QA report with rubric evidence, phrase boosting, and correction-aware transcription.",
+        route="/uc1",
+        voice_model="Azure Speech Service (default) / configurable per config/stt_config.toml",
+        details=[
+            "Reads audio from Blob Storage or local files.",
+            "Uses Azure Speech transcription, phrase list boosting, and post-STT corrections.",
+            "Scores the transcript against rubric rules and writes Markdown + JSON artifacts.",
+        ],
+        actions=[
+            ("Open benchmark page", "/benchmark"),
+        ],
+    ),
+    UseCaseCard(
+        id="uc2",
+        name="UC2 Real-time Call Assistant",
+        short_name="UC2",
+        summary="Live coaching for agents during customer calls.",
+        value="Shows next-best-action, compliance, and answer cards in real time while tracking token usage and audio duration.",
+        route="/uc2",
+        voice_model="Azure Speech Service (default) / configurable per config/stt_config.toml",
+        details=[
+            "Uses a Foundry-hosted assistant and keeps a rolling transcript window.",
+            "Surfaces STT model, LLM model, token usage, and call audio duration in the UI.",
+            "Can also emit a post-call summary in Traditional Chinese.",
+        ],
+        actions=[
+            ("Open live console", "/uc2/live"),
+          ("Open benchmark page", "/benchmark"),
+        ],
+    ),
+    UseCaseCard(
+        id="benchmark",
+        name="STT Benchmark Matrix",
+        short_name="Benchmark",
+        summary="Compare STT accuracy, latency, and cost across multiple providers.",
+        value="Lets you compare Azure Speech, MAI-Transcribe, GPT audio transcription, and Voice Live variants from a single benchmark page.",
+        route="/benchmark",
+        voice_model="azure-speech-stt, azure-speech-stt-fast, azure-speech-stt-rest, mai-transcribe-1.5, gpt-audio-transcribe, voice-live-api",
+        details=[
+            "Reads benchmark runs from reports/benchmarks.",
+            "Shows provider averages for WER, CER, keyword recall, latency, and audio cost.",
+            "Uses config/stt_config.toml for the default provider list.",
+        ],
+        actions=[
+            ("Open benchmark details", "/benchmark"),
+            ("Run matrix script", "/benchmark/script"),
+        ],
+    ),
+]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Data loading helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _current_config() -> dict[str, Any]:
+    cfg = load_stt_config()
+    return {
+        "uc1_provider": cfg.uc1.provider,
+        "uc1_provider_label": provider_to_display_label(cfg.uc1.provider),
+        "uc1_phrase_list": cfg.uc1.phrase_list,
+        "uc1_languages": cfg.uc1.languages,
+        "uc2_provider": cfg.uc2.provider,
+        "uc2_provider_label": provider_to_display_label(cfg.uc2.provider),
+        "benchmark_default_providers": cfg.benchmark.default_providers,
+        "benchmark_parallel": cfg.benchmark.parallel,
+    }
+
+
+_SUMMARY_ROW_RE = re.compile(
+  r"^\|\s*(?P<provider>[^|]+?)\s*\|\s*(?P<samples>\d+)\s*\|\s*(?P<wer>[0-9.]+)\s*\|\s*(?P<cer>[0-9.]+)\s*\|\s*(?P<keyword>[0-9.]+)\s*\|\s*(?P<confidence>[0-9.]+)\s*\|\s*(?P<latency>[0-9.]+)\s*\|\s*(?P<cost>[0-9.]+|N/A)\s*\|\s*(?P<decision>[0-9.]+)\s*\|$"
+)
+_COST_ROW_RE = re.compile(
+    r"^\|\s*(?P<provider>[^|]+?)\s*\|\s*(?P<cost>[^|]+?)\s*\|$"
+)
+
+
+def _scan_benchmark_runs(root: Path = _BENCHMARK_ROOT) -> list[BenchmarkRun]:
+    if not root.exists():
+        return []
+
+    runs: list[BenchmarkRun] = []
+    for run_dir in sorted((p for p in root.iterdir() if p.is_dir()), reverse=True):
+        summary_path = run_dir / "summary.md"
+        if not summary_path.exists():
+            continue
+
+        content = summary_path.read_text(encoding="utf-8")
+        providers: list[dict[str, Any]] = []
+        cost_rows: list[dict[str, str]] = []
+        recommendation: str | None = None
+        excerpt_lines: list[str] = []
+        in_summary_table = False
+        in_cost_table = False
+
+        for line in content.splitlines():
+            if len(excerpt_lines) < 12:
+                excerpt_lines.append(line)
+
+            if line.startswith("| Provider | Samples | Avg WER"):
+                in_summary_table = True
+                in_cost_table = False
+                continue
+            if line.startswith("## Cost Estimate"):
+                in_summary_table = False
+                in_cost_table = True
+                continue
+            if line.startswith("## ") and not line.startswith("## Cost Estimate"):
+                in_summary_table = False
+                in_cost_table = False
+            if in_summary_table:
+                match = _SUMMARY_ROW_RE.match(line)
+                if match:
+                    providers.append(
+                        {
+                            "provider": match.group("provider").strip(),
+                            "samples": int(match.group("samples")),
+                            "avg_wer": float(match.group("wer")),
+                            "avg_cer": float(match.group("cer")),
+                            "avg_keyword_recall": float(match.group("keyword")),
+                            "avg_confidence": float(match.group("confidence") or 0.0),
+                            "avg_latency_ms": float(match.group("latency")),
+                        "estimated_cost_usd": None if match.group("cost") == "N/A" else float(match.group("cost")),
+                        "decision_score": float(match.group("decision")),
+                        }
+                    )
+            if in_cost_table:
+                match = _COST_ROW_RE.match(line)
+                if match and match.group("provider") != "Provider":
+                    cost_rows.append(
+                        {
+                            "provider": match.group("provider").strip(),
+                            "cost": match.group("cost").strip(),
+                        }
+                    )
+            if line.startswith("- Recommended default:") and recommendation is None:
+                recommendation = line[2:].strip()
+
+        runs.append(
+            BenchmarkRun(
+                run_id=run_dir.name,
+                summary_path=summary_path,
+                providers=providers,
+                cost_rows=cost_rows,
+                recommendation=recommendation,
+                excerpt="\n".join(excerpt_lines).strip(),
+            )
+        )
+
+    return runs
+
+
+def _benchmark_overview() -> dict[str, Any]:
+    runs = _scan_benchmark_runs()
+    latest = runs[0] if runs else None
+    return {
+        "runs": runs,
+        "latest": latest,
+    }
+
+
+def _default_uc1_source_path(settings: Settings) -> str:
+    if settings.local_audio_path:
+        return str(settings.local_audio_path)
+    if settings.local_audio_dir:
+        return str(settings.local_audio_dir)
+    return ""
+
+
+def _default_benchmark_reference_dataset() -> str:
+    candidates = [
+        Path("data/stt_benchmark.template.jsonl"),
+        Path("data/stt_benchmark.jsonl"),
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return str(candidate).replace("\\", "/")
+    return ""
+
+
+def _apply_uc1_source_override(settings: Settings, source_path_override: str | None) -> Settings:
+    if not source_path_override:
+        return settings
+
+    source_path = Path(source_path_override).expanduser()
+    settings.input_source = "local"
+    settings.input_blob_name = None
+    settings.input_prefix = None
+
+    if source_path.exists() and source_path.is_file():
+        settings.local_audio_path = source_path
+        settings.local_audio_dir = None
+        return settings
+
+    if source_path.exists() and source_path.is_dir():
+        settings.local_audio_path = None
+        settings.local_audio_dir = source_path
+        return settings
+
+    if source_path.suffix.lower() in {".wav", ".mp3", ".m4a", ".flac", ".ogg"}:
+        settings.local_audio_path = source_path
+        settings.local_audio_dir = None
+    else:
+        settings.local_audio_path = None
+        settings.local_audio_dir = source_path
+    return settings
+
+
+def _uc1_run_result_html(run_summary: Uc1RunSummary | None) -> str:
+    if run_summary is None:
+        return ""
+
+    def _build_report_cell(call):
+        if not call.report_path:
+            return "<td>-</td>"
+        report_name = Path(call.report_path).name
+        safe_path = escape(call.report_path, quote=True)
+        return f'<td><a href="/api/uc1/report?path={safe_path}" style="color:#a78bfa; text-decoration:underline; cursor:pointer;" onclick="return viewReport(event)">{escape(report_name)}</a></td>'
+
+    rows = "".join(
+        f"<tr>"
+        f"<td>{escape(call.call_id)}</td>"
+        f"<td>{escape(call.stt_status)}</td>"
+        f"<td>{call.pass_count}</td>"
+        f"<td>{call.fail_count}</td>"
+        f"<td>{call.total_tokens}</td>"
+        f"{_build_report_cell(call)}"
+        f"<td>{escape(call.error or '')}</td>"
+        f"</tr>"
+        for call in run_summary.calls
+    ) or "<tr><td colspan='7' class='muted'>No call-level output.</td></tr>"
+
+    return f"""
+    <section class="section">
+      <div class="panel">
+        <h4>Quality check result</h4>
+        <div class="chip-row">
+          <span class="chip"><strong>Provider</strong> {escape(provider_to_display_label(run_summary.provider))}</span>
+          <span class="chip"><strong>Source mode</strong> {escape(run_summary.source_mode.upper())}</span>
+          <span class="chip"><strong>Total items</strong> {run_summary.total_items}</span>
+          <span class="chip"><strong>Success</strong> {run_summary.success_count}</span>
+          <span class="chip"><strong>Errors</strong> {run_summary.error_count}</span>
+        </div>
+        <div class="table-wrap" style="margin-top: 12px;">
+          <table>
+            <thead>
+              <tr><th>Call</th><th>STT</th><th>Pass</th><th>Fail</th><th>Total Tokens</th><th>Report</th><th>Error</th></tr>
+            </thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div id="reportModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; overflow:auto;">
+      <div style="background:#1a1a1a; margin:20px auto; padding:20px; border-radius:12px; max-width:90%; max-height:80vh; overflow:auto; border:1px solid rgba(255,255,255,0.15);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <h3 id="reportTitle" style="margin:0; color:#a78bfa;"></h3>
+          <button onclick="closeReport()" style="background:none; border:none; color:#fff; font-size:24px; cursor:pointer; padding:0;">&times;</button>
+        </div>
+        <div id="reportContent" style="color:#e0e0e0; line-height:1.6;"></div>
+      </div>
+    </div>
+
+    <style>
+      #reportContent h1, #reportContent h2, #reportContent h3, #reportContent h4, #reportContent h5, #reportContent h6 {{
+        color: #a78bfa;
+        margin-top: 1.2em;
+        margin-bottom: 0.6em;
+      }}
+      #reportContent h1 {{ font-size: 1.8em; }}
+      #reportContent h2 {{ font-size: 1.6em; }}
+      #reportContent h3 {{ font-size: 1.4em; }}
+      #reportContent p {{ margin: 0.6em 0; }}
+      #reportContent ul, #reportContent ol {{
+        margin: 0.6em 0;
+        padding-left: 2em;
+      }}
+      #reportContent li {{ margin: 0.3em 0; }}
+      #reportContent code {{
+        background: rgba(255,255,255,0.1);
+        padding: 0.2em 0.4em;
+        border-radius: 3px;
+        font-family: monospace;
+        font-size: 0.9em;
+        color: #a78bfa;
+      }}
+      #reportContent pre {{
+        background: rgba(0,0,0,0.3);
+        padding: 1em;
+        border-radius: 6px;
+        overflow-x: auto;
+        border-left: 3px solid #a78bfa;
+        font-family: monospace;
+        font-size: 0.85em;
+        margin: 0.6em 0;
+      }}
+      #reportContent table {{
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1em 0;
+      }}
+      #reportContent th {{
+        background: rgba(167,139,250,0.1);
+        border: 1px solid rgba(255,255,255,0.2);
+        padding: 0.5em;
+        text-align: left;
+        color: #a78bfa;
+        font-weight: bold;
+      }}
+      #reportContent td {{
+        border: 1px solid rgba(255,255,255,0.2);
+        padding: 0.5em;
+      }}
+      #reportContent blockquote {{
+        border-left: 3px solid #a78bfa;
+        padding-left: 1em;
+        margin-left: 0;
+        color: #b0b0b0;
+      }}
+      #reportContent a {{
+        color: #a78bfa;
+        text-decoration: underline;
+      }}
+    </style>
+
+    <script>
+      function viewReport(event) {{
+        event.preventDefault();
+        const href = event.target.href;
+        const url = new URL(href);
+        const path = url.searchParams.get('path');
+        fetch('/api/uc1/report?path=' + encodeURIComponent(path))
+          .then(r => r.json())
+          .then(data => {{
+            document.getElementById('reportTitle').textContent = data.name || 'Report';
+            const contentDiv = document.getElementById('reportContent');
+            if (data.is_html) {{
+              contentDiv.innerHTML = data.content;
+            }} else {{
+              contentDiv.textContent = data.content;
+            }}
+            document.getElementById('reportModal').style.display = 'block';
+          }})
+          .catch(err => alert('Error loading report: ' + err));
+        return false;
+      }}
+      function closeReport() {{
+        document.getElementById('reportModal').style.display = 'none';
+      }}
+      document.getElementById('reportModal').onclick = function(e) {{
+        if (e.target === this) closeReport();
+      }};
+    </script>
+    """
+
+
+def _benchmark_source_audio_items(source_path: str | None) -> list[Uc1AudioItem]:
+    if not source_path:
+        return []
+
+    path = Path(source_path).expanduser()
+    candidates: list[Path] = []
+    if path.exists() and path.is_file():
+        candidates = [path]
+    elif path.exists() and path.is_dir():
+        candidates = sorted([p for p in path.iterdir() if p.is_file()])
+    else:
+        return []
+
+    allowed = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+    items: list[Uc1AudioItem] = []
+    for candidate in candidates:
+        if candidate.suffix.lower() not in allowed:
+            continue
+        items.append(
+            Uc1AudioItem(
+                path=str(candidate),
+                name=candidate.name,
+                duration_seconds=_wav_duration(candidate),
+                size_bytes=candidate.stat().st_size if candidate.exists() else None,
+            )
+        )
+    return items
+
+
+def _reference_lookup_from_dataset(reference_dataset_path: str | None) -> dict[str, BenchmarkSample]:
+    if not reference_dataset_path:
+        return {}
+
+    dataset_path = Path(reference_dataset_path).expanduser()
+    if not dataset_path.exists() or not dataset_path.is_file():
+        raise FileNotFoundError(f"Reference dataset not found: {dataset_path}")
+
+    samples = parse_dataset(dataset_path)
+    lookup: dict[str, BenchmarkSample] = {}
+    for sample in samples:
+        call_key = sample.call_id.strip().lower()
+        stem_key = sample.audio_path.stem.strip().lower()
+        name_key = sample.audio_path.name.strip().lower()
+        if call_key:
+            lookup[call_key] = sample
+        if stem_key:
+            lookup[stem_key] = sample
+        if name_key:
+            lookup[name_key] = sample
+    return lookup
+
+
+def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
+    if run_summary is None:
+        return ""
+
+    provider_details: dict[str, list[dict[str, Any]]] = {}
+    for result_file in run_summary.result_files:
+        if not result_file.endswith(".results.jsonl"):
+            continue
+
+        provider_name = Path(result_file).name[: -len(".results.jsonl")]
+        details: list[dict[str, Any]] = []
+        try:
+            for raw_line in Path(result_file).read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                payload = json.loads(line)
+                if not isinstance(payload, dict):
+                    continue
+                details.append(
+                    {
+                        "call_id": str(payload.get("call_id") or ""),
+                        "reference_text": str(payload.get("reference_text") or ""),
+                        "hypothesis_text": str(payload.get("hypothesis_text") or ""),
+                        "wer": float(payload.get("wer") or 0.0),
+                        "cer": float(payload.get("cer") or 0.0),
+                        "keyword_recall": float(payload.get("keyword_recall") or 0.0),
+                    "confidence": float(payload.get("confidence") or 0.0),
+                        "latency_ms": float(payload.get("latency_ms") or 0.0),
+                        "error": str(payload.get("error") or ""),
+                    }
+                )
+        except Exception:
+            details = []
+
+        provider_details[provider_name] = details
+
+    provider_details_js = json.dumps(provider_details, ensure_ascii=False).replace("</", "<\\/")
+
+    provider_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(row.get('provider', '')))}</td>"
+        f"<td>{int(row.get('samples', 0))}</td>"
+        f"<td>{float(row.get('avg_wer', 0.0)):.4f}</td>"
+        f"<td>{float(row.get('avg_cer', 0.0)):.4f}</td>"
+        f"<td>{float(row.get('avg_keyword_recall', 0.0)):.4f}</td>"
+        f"<td>{float(row.get('avg_confidence', 0.0)):.4f}</td>"
+        f"<td>{float(row.get('avg_latency_ms', 0.0)):.2f}</td>"
+        f"<td><button style=\"background:rgba(167,139,250,.18); color:#c4b5fd; border:1px solid rgba(167,139,250,.45); border-radius:999px; padding:6px 12px; cursor:pointer; font-weight:600;\" onclick=\"openProviderDetails({escape(json.dumps(str(row.get('provider', ''))), quote=True)})\">Details</button></td>"
+        "</tr>"
+        for row in run_summary.provider_rows
+      ) or "<tr><td colspan='8' class='muted'>No provider rows found in summary.</td></tr>"
+
+    artifact_rows = "".join(
+        f"<tr><td><a href=\"/api/uc1/report?path={escape(path, quote=True)}\" style=\"color:#a78bfa; text-decoration:underline;\" onclick=\"return viewBenchmarkArtifact(event)\">{escape(Path(path).name)}</a></td><td>{escape(path)}</td></tr>"
+        for path in run_summary.result_files
+    ) or "<tr><td colspan='2' class='muted'>No result artifact files.</td></tr>"
+
+    return f"""
+    <section class="section">
+      <div class="panel">
+        <h4>Benchmark run result</h4>
+        <div class="chip-row">
+          <span class="chip"><strong>Run ID</strong> {escape(run_summary.run_id)}</span>
+          <span class="chip"><strong>Source</strong> {escape(run_summary.source_path)}</span>
+          <span class="chip"><strong>Reference dataset</strong> {escape(run_summary.reference_dataset_path or 'none')}</span>
+          <span class="chip"><strong>Providers</strong> {escape(', '.join(run_summary.providers))}</span>
+          <span class="chip"><strong>Total items</strong> {run_summary.total_items}</span>
+          <span class="chip"><strong>Success</strong> {run_summary.success_count}</span>
+          <span class="chip"><strong>Errors</strong> {run_summary.error_count}</span>
+        </div>
+        <div class="table-wrap" style="margin-top: 12px;">
+          <table>
+            <thead>
+              <tr><th>Provider</th><th>Samples</th><th>WER</th><th>CER</th><th>Keyword Recall</th><th>Confidence</th><th>Latency (ms)</th><th>Details</th></tr>
+            </thead>
+            <tbody>{provider_rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="panel">
+        <h4>Run artifacts</h4>
+        <div class="chip-row">
+          <span class="chip"><strong>Summary</strong> <a href="/api/uc1/report?path={escape(run_summary.summary_path, quote=True)}" style="color:#a78bfa; text-decoration:underline;" onclick="return viewBenchmarkArtifact(event)">{escape(Path(run_summary.summary_path).name)}</a></span>
+        </div>
+        <div class="table-wrap" style="margin-top: 12px;">
+          <table>
+            <thead><tr><th>File</th><th>Path</th></tr></thead>
+            <tbody>{artifact_rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div id="benchmarkArtifactModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; overflow:auto;">
+      <div style="background:#1a1a1a; margin:20px auto; padding:20px; border-radius:12px; max-width:90%; max-height:80vh; overflow:auto; border:1px solid rgba(255,255,255,0.15);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <h3 id="benchmarkArtifactTitle" style="margin:0; color:#a78bfa;"></h3>
+          <button onclick="closeBenchmarkArtifact()" style="background:none; border:none; color:#fff; font-size:24px; cursor:pointer; padding:0;">&times;</button>
+        </div>
+        <div id="benchmarkArtifactContent" style="color:#e0e0e0; line-height:1.6;"></div>
+      </div>
+    </div>
+
+    <div id="providerDetailModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1001; overflow:auto;">
+      <div style="background:#171324; margin:20px auto; padding:20px; border-radius:12px; max-width:1000px; max-height:84vh; overflow:auto; border:1px solid rgba(255,255,255,0.15);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <h3 id="providerDetailTitle" style="margin:0; color:#c4b5fd;"></h3>
+          <button onclick="closeProviderDetails()" style="background:none; border:none; color:#fff; font-size:24px; cursor:pointer; padding:0;">&times;</button>
+        </div>
+        <div id="providerDetailBody" style="color:#e0e0e0; line-height:1.6;"></div>
+      </div>
+    </div>
+
+    <script>
+      const benchmarkProviderDetails = {provider_details_js};
+
+      function openProviderDetails(providerName) {{
+        const items = benchmarkProviderDetails[providerName] || [];
+        const title = document.getElementById('providerDetailTitle');
+        const body = document.getElementById('providerDetailBody');
+        title.textContent = providerName + ' - Details';
+
+        if (!items.length) {{
+          body.innerHTML = '<div style="padding:12px; border:1px solid rgba(255,255,255,.15); border-radius:8px;">No sample details found for this provider.</div>';
+          document.getElementById('providerDetailModal').style.display = 'block';
+          return;
+        }}
+
+        const safe = (value) => {{
+          const el = document.createElement('div');
+          el.textContent = String(value ?? '');
+          return el.innerHTML;
+        }};
+
+        const cards = items.map((item) => {{
+          const expected = item.reference_text ? safe(item.reference_text) : '<span style="opacity:.7;">[empty/no reference]</span>';
+          const response = item.hypothesis_text ? safe(item.hypothesis_text) : '<span style="opacity:.7;">[empty response]</span>';
+          const error = item.error ? '<div style="margin-top:8px; padding:8px; border:1px solid rgba(239,68,68,.55); border-radius:8px; color:#fca5a5;">' + safe(item.error) + '</div>' : '';
+          return `
+            <div style="border:1px solid rgba(255,255,255,.14); border-radius:10px; padding:14px; margin-bottom:12px; background:rgba(255,255,255,.03);">
+              <div style="font-weight:700; color:#c4b5fd; margin-bottom:8px;">${{safe(item.call_id || 'unknown')}}</div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div style="padding:10px; border-radius:8px; border-left:4px solid #34d399; background:rgba(255,255,255,.03);">
+                  <div style="font-weight:700; color:#86efac; margin-bottom:6px;">Expected</div>
+                  <div style="white-space:pre-wrap; word-break:break-word;">${{expected}}</div>
+                </div>
+                <div style="padding:10px; border-radius:8px; border-left:4px solid #f87171; background:rgba(255,255,255,.03);">
+                  <div style="font-weight:700; color:#fca5a5; margin-bottom:6px;">Model Response</div>
+                  <div style="white-space:pre-wrap; word-break:break-word;">${{response}}</div>
+                </div>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:8px; margin-top:10px;">
+                <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">WER</div><div style="font-weight:700;">${{Number(item.wer || 0).toFixed(4)}}</div></div>
+                <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">CER</div><div style="font-weight:700;">${{Number(item.cer || 0).toFixed(4)}}</div></div>
+                <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Keyword Recall</div><div style="font-weight:700;">${{Number(item.keyword_recall || 0).toFixed(4)}}</div></div>
+                <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Confidence</div><div style="font-weight:700;">${{Number(item.confidence || 0).toFixed(4)}}</div></div>
+                <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Latency (ms)</div><div style="font-weight:700;">${{Number(item.latency_ms || 0).toFixed(2)}}</div></div>
+              </div>
+              ${{error}}
+            </div>
+          `;
+        }}).join('');
+
+        body.innerHTML = cards;
+        document.getElementById('providerDetailModal').style.display = 'block';
+      }}
+
+      function closeProviderDetails() {{
+        document.getElementById('providerDetailModal').style.display = 'none';
+      }}
+
+      function viewBenchmarkArtifact(event) {{
+        event.preventDefault();
+        const href = event.target.href;
+        const url = new URL(href);
+        const path = url.searchParams.get('path');
+        fetch('/api/uc1/report?path=' + encodeURIComponent(path))
+          .then(r => r.json())
+          .then(data => {{
+            document.getElementById('benchmarkArtifactTitle').textContent = data.name || 'Artifact';
+            const contentDiv = document.getElementById('benchmarkArtifactContent');
+            if (data.is_html) {{
+              contentDiv.innerHTML = data.content;
+            }} else {{
+              contentDiv.textContent = data.content;
+            }}
+            document.getElementById('benchmarkArtifactModal').style.display = 'block';
+          }})
+          .catch(err => alert('Error loading artifact: ' + err));
+        return false;
+      }}
+      function closeBenchmarkArtifact() {{
+        document.getElementById('benchmarkArtifactModal').style.display = 'none';
+      }}
+      document.getElementById('benchmarkArtifactModal').onclick = function(e) {{
+        if (e.target === this) closeBenchmarkArtifact();
+      }};
+      document.getElementById('providerDetailModal').onclick = function(e) {{
+        if (e.target === this) closeProviderDetails();
+      }};
+    </script>
+    """
+
+
+def _parse_summary_provider_rows(summary_path: Path) -> list[dict[str, Any]]:
+    if not summary_path.exists():
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for line in summary_path.read_text(encoding="utf-8").splitlines():
+        match = _SUMMARY_ROW_RE.match(line)
+        if not match:
+            continue
+        rows.append(
+            {
+                "provider": match.group("provider").strip(),
+                "samples": int(match.group("samples")),
+                "avg_wer": float(match.group("wer")),
+                "avg_cer": float(match.group("cer")),
+                "avg_keyword_recall": float(match.group("keyword")),
+                "avg_confidence": float(match.group("confidence") or 0.0),
+                "avg_latency_ms": float(match.group("latency")),
+            }
+        )
+    return rows
+
+
+def _build_benchmark_samples_from_source(
+  source_path: str,
+  reference_dataset_path: str | None = None,
+) -> list[BenchmarkSample]:
+  source_candidate = Path(source_path).expanduser()
+  if source_candidate.exists() and source_candidate.is_file() and source_candidate.suffix.lower() == ".jsonl":
+    # If source itself is a dataset JSONL, use it directly.
+    return parse_dataset(source_candidate)
+
+  reference_lookup = _reference_lookup_from_dataset(reference_dataset_path)
+  items = _benchmark_source_audio_items(source_path)
+  samples: list[BenchmarkSample] = []
+  for item in items:
+    audio_path = Path(item.path)
+    call_key = audio_path.stem.strip().lower()
+    name_key = audio_path.name.strip().lower()
+    matched = reference_lookup.get(call_key) or reference_lookup.get(name_key)
+    if matched is None or not matched.reference_text.strip():
+      raise ValueError(
+        f"Missing reference_text for benchmark audio '{audio_path.name}'. Add a matching row to the reference dataset before running the benchmark."
+      )
+    samples.append(
+      BenchmarkSample(
+        call_id=audio_path.stem,
+        audio_path=audio_path,
+        reference_text=matched.reference_text,
+        keywords=matched.keywords,
+        metadata={"audio_duration_seconds": item.duration_seconds or 0.0},
+      )
+    )
+  return samples
+
+
+def _run_benchmark_from_source(
+    source_path: str,
+    provider_ids: list[str],
+    reference_dataset_path: str | None = None,
+) -> BenchmarkRunSummary:
+    providers = [build_provider(provider_id) for provider_id in provider_ids]
+    samples = _build_benchmark_samples_from_source(source_path, reference_dataset_path)
+    if not samples:
+        raise ValueError("No audio files found in the selected source path.")
+
+    run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    output_dir = _BENCHMARK_ROOT / run_id
+    summary_path = run_benchmark(
+        providers=providers,
+        samples=samples,
+        output_dir=output_dir,
+        max_workers=1,
+    )
+    append_cost_report(summary_path, samples, providers)
+
+    provider_rows = _parse_summary_provider_rows(summary_path)
+    result_files = [str(summary_path)]
+    for provider in providers:
+        results_path = output_dir / f"{provider.name}.results.jsonl"
+        if results_path.exists():
+            result_files.append(str(results_path))
+
+    error_count = 0
+    success_count = 0
+    for row in provider_rows:
+        sample_count = int(row.get("samples", 0))
+        if sample_count <= 0:
+            error_count += 1
+        else:
+            success_count += 1
+
+    return BenchmarkRunSummary(
+        run_id=run_id,
+        source_path=source_path,
+        providers=[provider.name for provider in providers],
+        total_items=len(samples),
+        success_count=success_count,
+        error_count=error_count,
+        summary_path=str(summary_path),
+        provider_rows=provider_rows,
+        result_files=result_files,
+        reference_dataset_path=reference_dataset_path,
+    )
+
+
+def _uc1_page(
+    message: str | None = None,
+    run_summary: Uc1RunSummary | None = None,
+    source_path_override: str | None = None,
+    stt_provider_override: str | None = None,
+) -> str:
+    cfg = _current_config()
+    default_settings = load_settings()
+
+    source_path_value = (source_path_override or _default_uc1_source_path(default_settings)).strip()
+    page_settings = _apply_uc1_source_override(load_settings(), source_path_value or None)
+
+    selected_provider = (stt_provider_override or cfg["uc1_provider"]).strip()
+    provider_ids = list(_UC1_SUPPORTED_PROVIDERS)
+    if selected_provider and selected_provider not in provider_ids:
+        provider_ids.append(selected_provider)
+
+    audio_items = _uc1_audio_items(page_settings)
+    source_label = (
+        str(page_settings.local_audio_path)
+        if page_settings.local_audio_path
+        else str(page_settings.local_audio_dir)
+        if page_settings.local_audio_dir
+        else "No local WAV source configured"
+    )
+    source_mode = page_settings.input_source.upper()
+
+    provider_options = "".join(
+        f"<option value=\"{escape(provider_id)}\"{' selected' if provider_id == selected_provider else ''}>"
+        f"{escape(provider_to_display_label(provider_id))} ({escape(provider_id)})"
+        f"</option>"
+        for provider_id in provider_ids
+    )
+
+    audio_rows = "".join(
+      f"<tr>"
+      f"<td>{escape(item.name)}</td>"
+      f"<td>{escape(item.path)}</td>"
+      f"<td>{escape(_format_seconds(item.duration_seconds))}</td>"
+      f"<td>{escape(_human_size(item.size_bytes))}</td>"
+      f"<td><audio class='preview-player' controls preload='none' src='/api/audio/preview?path={escape(quote(item.path, safe=''), quote=True)}'></audio></td>"
+      f"</tr>"
+      for item in audio_items
+    ) or "<tr><td colspan='5' class='muted'>No audio files found.</td></tr>"
+
+    message_html = ""
+    if message:
+        message_html = f"""
+        <section class="section">
+          <div class="panel">
+            <h4>Run status</h4>
+            <div class="summary-box">{escape(message)}</div>
+          </div>
+        </section>
+        """
+
+    result_html = _uc1_run_result_html(run_summary)
+
+    body = f"""
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow">UC1 quality check</span>
+          <h2>Run quality check and review the result directly on this page.</h2>
+          <p class="lead">
+            You can change the local source path and STT method for this run. The report summary and per-call results
+            are shown below immediately after the job completes.
+          </p>
+          <div class="chip-row">
+            <span class="chip"><strong>Source mode</strong> {escape(source_mode)}</span>
+            <span class="chip"><strong>Source path</strong> {escape(source_label)}</span>
+            <span class="chip"><strong>STT</strong> {escape(provider_to_display_label(selected_provider))}</span>
+          </div>
+          <form method="post" action="/uc1/run" style="margin-top:14px;">
+            <div class="split">
+              <div>
+                <label for="source_path">Source path (file or folder)</label>
+                <input id="source_path" name="source_path" type="text" value="{escape(source_path_value)}" placeholder="e.g. data/benchmark_audio or C:/calls/demo.wav" style="width:100%; margin-top:6px;" />
+              </div>
+              <div>
+                <label for="stt_provider">STT method</label>
+                <select id="stt_provider" name="stt_provider" style="width:100%; margin-top:6px;">{provider_options}</select>
+              </div>
+            </div>
+            <div class="cta-row">
+              <button class="btn primary" type="submit">Run quality check</button>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <h4>What this page does</h4>
+          <ul class="detail-list">
+            <li>Shows each local audio file that UC1 will process from the selected source path.</li>
+            <li>Runs speech recognition, rubric scoring, and Markdown report generation.</li>
+            <li>Shows run status, pass/fail counts, token usage, and report paths on-page.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h3>Source audio preview</h3>
+          <p>These files will be included in the next quality check run.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>File</th><th>Path</th><th>Duration</th><th>Size</th><th>Play</th></tr>
+          </thead>
+          <tbody>{audio_rows}</tbody>
+        </table>
+      </div>
+    </section>
+    {message_html}
+    {result_html}
+    """
+    return _page_shell("UC1", "uc1", body, cfg["uc1_provider_label"])
+
+
+def _wav_duration(path: Path) -> float | None:
+  try:
+    import wave
+
+    with wave.open(str(path), "rb") as wav_file:
+      frame_rate = wav_file.getframerate()
+      if frame_rate <= 0:
+        return None
+      return wav_file.getnframes() / frame_rate
+  except Exception:
+    return None
+
+
+def _human_size(size_bytes: int | None) -> str:
+  if size_bytes is None:
+    return "Unknown"
+  value = float(size_bytes)
+  for unit in ["B", "KB", "MB", "GB"]:
+    if value < 1024 or unit == "GB":
+      return f"{value:.1f} {unit}"
+    value /= 1024
+  return f"{value:.1f} GB"
+
+
+def _format_seconds(value: float | None) -> str:
+  if value is None:
+    return "Unknown"
+  return f"{value:.2f}s"
+
+
+def _uc1_audio_items(settings: Settings | None = None) -> list[Uc1AudioItem]:
+  resolved_settings = settings or load_settings()
+  reader = BlobReader(resolved_settings)
+
+  items: list[Uc1AudioItem] = []
+  try:
+    for item in reader.list_input_audio_items():
+      item_path = Path(item)
+      items.append(
+        Uc1AudioItem(
+          path=str(item_path),
+          name=item_path.name,
+          duration_seconds=_wav_duration(item_path),
+          size_bytes=item_path.stat().st_size if item_path.exists() else None,
+        )
+      )
+  except Exception as exc:
+    items.append(
+      Uc1AudioItem(
+        path="",
+        name=f"Unable to list audio: {exc}",
+        duration_seconds=None,
+        size_bytes=None,
+      )
+    )
+  return items
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HTML helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _page_shell(title: str, active: str, body: str, stt_method: str = "Configured") -> str:
+    nav_items = [
+        ("/", "Home", "home"),
+        ("/uc1", "UC1", "uc1"),
+        ("/uc2", "UC2", "uc2"),
+        ("/benchmark", "Benchmark", "benchmark"),
+    ]
+    nav_html = "".join(
+        f'<a class="nav-link{" active" if key == active else ""}" href="{href}" data-key="{key}">{label}</a>'
+        for href, label, key in nav_items
+    )
+    stt_html = (
+      f'<div id="sttMethod" class="stt-method"><strong>STT:</strong> <span id="sttMethodLabel">{escape(stt_method)}</span></div>'
+      if stt_method.strip()
+      else ""
+    )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{escape(title)} · VoiceCall Verify</title>
+  <style>
+    :root {{
+      --bg-base: #0f172a;
+      --text: #ecf0ff;
+      --muted: #c9d0e8;
+      --surface: rgba(18, 22, 34, 0.72);
+      --surface-strong: rgba(29, 35, 54, 0.5);
+      --border: rgba(196, 205, 238, 0.22);
+      --accent: #7aa0ff;
+      --accent-2: #67d9ff;
+      --accent-soft: rgba(122, 160, 255, 0.16);
+      --summary: rgba(103, 217, 255, 0.12);
+      --summary-border: rgba(122, 160, 255, 0.24);
+      --shadow: 0 22px 52px rgba(8, 10, 20, 0.4);
+    }}
+    * {{ box-sizing: border-box; }}
+    html, body {{ height: 100%; }}
+    body {{
+      margin: 0;
+      color: var(--text);
+      background:
+        linear-gradient(165deg, rgba(30, 33, 63, 0.24), rgba(19, 22, 36, 0.76)),
+        radial-gradient(circle at 20% 14%, rgba(255, 174, 174, 0.46), transparent 40%),
+        radial-gradient(circle at 82% 8%, rgba(120, 117, 255, 0.34), transparent 38%),
+        radial-gradient(circle at 50% 112%, rgba(145, 191, 255, 0.27), transparent 45%),
+        url('https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&w=1800&q=80') center / cover no-repeat,
+        var(--bg-base);
+      font-family: "Aptos Display", "Aptos", "Segoe UI Variable", "Trebuchet MS", sans-serif;
+    }}
+    a {{ color: inherit; text-decoration: none; }}
+    code {{ color: #dbe6ff; background: rgba(12, 16, 28, 0.58); border: 1px solid rgba(187, 201, 244, 0.22); border-radius: 8px; padding: 2px 7px; }}
+    .wrap {{ max-width: 1320px; margin: 0 auto; padding: 20px; animation: rise 0.55s ease; }}
+    .topbar {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }}
+    .brand-pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(16, 20, 32, 0.76);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: #dbe6ff;
+    }}
+    .ms-mark {{
+      width: 14px;
+      height: 14px;
+      background:
+        linear-gradient(#f35325, #f35325) 0 0 / 6px 6px no-repeat,
+        linear-gradient(#81bc06, #81bc06) 8px 0 / 6px 6px no-repeat,
+        linear-gradient(#05a6f0, #05a6f0) 0 8px / 6px 6px no-repeat,
+        linear-gradient(#ffba08, #ffba08) 8px 8px / 6px 6px no-repeat;
+      border-radius: 2px;
+      flex: 0 0 auto;
+    }}
+    .status-row {{
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }}
+    .nav {{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }}
+    .nav-link {{
+      font-size: 0.86rem;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(200, 210, 244, 0.2);
+      color: #d8e2ff;
+      font-weight: 700;
+      border: 1px solid rgba(210, 219, 255, 0.3);
+      transition: transform 0.14s ease, filter 0.14s ease;
+      white-space: nowrap;
+    }}
+    .nav-link.active {{
+      color: #072c1f;
+      background: #8bf7c4;
+      border-color: transparent;
+    }}
+    .nav-link:hover {{ transform: translateY(-1px); filter: brightness(1.03); }}
+    .lang-selector {{
+      display: flex; gap: 8px; align-items: center;
+    }}
+    .lang-btn {{
+      padding: 6px 14px; border-radius: 6px; border: 1px solid rgba(150, 170, 220, 0.4);
+      background: rgba(50, 65, 110, 0.6); color: #b8c8e8; font-weight: 700; font-size: 0.8rem;
+      cursor: pointer; transition: all 0.2s ease;
+    }}
+    .lang-btn.active {{
+      background: rgba(100, 120, 180, 0.8); color: #fff; border-color: rgba(150, 170, 220, 0.8);
+    }}
+    .lang-btn:hover {{
+      transform: translateY(-1px); filter: brightness(1.05);
+    }}
+    .stt-method {{
+      font-size: 0.8rem; color: #b8c8e8; padding: 6px 14px; border-radius: 6px;
+      background: rgba(100, 140, 220, 0.2); border: 1px solid rgba(122, 160, 255, 0.35); flex-shrink: 0;
+    }}
+    .stt-method strong {{
+      color: #7aa0ff;
+    }}
+    @media (max-width: 1100px) {{
+      .topbar {{ flex-direction: column; align-items: flex-start; }}
+      .status-row, .nav {{ width: 100%; }}
+    }}
+    .hero {{
+      margin-top: 22px; padding: 30px; border-radius: 28px;
+      background: var(--surface);
+      border: 1px solid var(--border); box-shadow: var(--shadow); overflow: hidden; backdrop-filter: blur(12px);
+    }}
+    .hero-grid {{ display: grid; grid-template-columns: 1.4fr 0.8fr; gap: 18px; align-items: start; }}
+    .eyebrow {{
+      display: inline-flex; align-items: center; gap: 8px; padding: 7px 11px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(122, 160, 255, 0.24);
+      font-size: 0.82rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+    }}
+    h2 {{ margin: 14px 0 10px; font-size: clamp(1.7rem, 3vw, 2.35rem); line-height: 1.08; text-shadow: 0 12px 34px rgba(7, 10, 18, 0.45); }}
+    .lead {{ color: var(--muted); font-size: 1.04rem; line-height: 1.6; max-width: 72ch; }}
+    .stats {{ display: grid; gap: 12px; }}
+    .stat {{
+      padding: 14px 16px; border-radius: 18px; background: rgba(12, 16, 28, 0.56);
+      border: 1px solid var(--border);
+    }}
+    .stat .k {{ color: var(--muted); font-size: 0.84rem; text-transform: uppercase; letter-spacing: 0.08em; }}
+    .stat .v {{ margin-top: 8px; font-size: 1.02rem; line-height: 1.45; }}
+    .section {{ margin-top: 18px; }}
+    .section-head {{ display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }}
+    .section-head h3 {{ margin: 0; font-size: 1.25rem; }}
+    .section-head p {{ margin: 0; color: var(--muted); }}
+    .grid {{ display: grid; gap: 14px; }}
+    .grid.cards {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    .card {{
+      border-radius: 18px; padding: 18px; background: var(--surface);
+      border: 1px solid var(--border); box-shadow: var(--shadow); backdrop-filter: blur(10px);
+    }}
+    .card h4 {{ margin: 0 0 8px; font-size: 1.1rem; }}
+    .card p {{ margin: 0; color: var(--muted); line-height: 1.55; }}
+    .chip-row {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }}
+    .chip {{
+      display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 999px;
+      background: rgba(14, 18, 30, 0.64); border: 1px solid var(--border); color: var(--text); font-size: 0.88rem;
+    }}
+    .chip strong {{ color: #dbe6ff; }}
+    .cta-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }}
+    .btn {{
+      display: inline-flex; align-items: center; justify-content: center; padding: 11px 14px; border-radius: 14px;
+      border: 1px solid rgba(194, 206, 242, 0.3); background: rgba(94, 112, 168, 0.23);
+      color: var(--text); font-weight: 800; cursor: pointer; transition: transform 0.14s ease, filter 0.14s ease;
+    }}
+    .btn.primary {{ background: linear-gradient(140deg, #6584ff, #3d63ee); border-color: transparent; }}
+    .btn:hover, .nav-link:hover {{ transform: translateY(-1px); filter: brightness(1.03); }}
+    input, select, textarea, button {{ font: inherit; }}
+    input, select, textarea {{
+      border-radius: 12px; border: 1px solid rgba(194, 206, 242, 0.3); padding: 10px 12px;
+      background: rgba(18, 23, 36, 0.84); color: var(--text);
+    }}
+    input:focus, select:focus, textarea:focus {{ outline: 2px solid rgba(125, 182, 255, 0.85); outline-offset: 1px; }}
+    input[type="checkbox"] {{ accent-color: #6584ff; }}
+    label {{ color: var(--muted); font-weight: 700; }}
+    .table-wrap {{ overflow: auto; border-radius: 18px; border: 1px solid var(--border); background: rgba(12, 16, 28, 0.72); backdrop-filter: blur(8px); }}
+    table {{ width: 100%; border-collapse: collapse; min-width: 760px; }}
+    th, td {{ padding: 12px 14px; text-align: left; border-bottom: 1px solid rgba(198, 209, 240, 0.16); }}
+    th {{ color: var(--muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; }}
+    .preview-player {{ width: 170px; height: 34px; }}
+    tr:last-child td {{ border-bottom: none; }}
+    .muted {{ color: var(--muted); }}
+    .split {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }}
+    .panel {{ border-radius: 18px; padding: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); backdrop-filter: blur(10px); }}
+    .panel h4 {{ margin: 0 0 10px; }}
+    .summary-box {{ white-space: pre-wrap; line-height: 1.5; color: #dbe6ff; background: var(--summary); padding: 14px; border-radius: 16px; border: 1px solid var(--summary-border); }}
+    .footer {{ margin-top: 18px; color: var(--muted); font-size: 0.9rem; }}
+    .detail-list {{ margin: 0; padding-left: 18px; color: var(--muted); line-height: 1.7; }}
+    @keyframes rise {{ from {{ opacity: 0; transform: translateY(10px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+    @media (max-width: 1100px) {{
+      .grid.cards, .hero-grid, .split {{ grid-template-columns: 1fr; }}
+    }}
+  </style>
+</head>
+<body data-stt-method="{escape(stt_method)}">
+  <div class="wrap">
+    <header class="topbar">
+      <div class="brand-pill">
+        <span class="ms-mark" aria-hidden="true"></span>
+        <span>Microsoft Voice QA</span>
+      </div>
+      <div class="lang-selector">
+        <button class="lang-btn active" id="langBtnEn" data-lang="en">English</button>
+        <button class="lang-btn" id="langBtnZh" data-lang="zh">繁體中文</button>
+      </div>
+      <div class="status-row">
+        {stt_html}
+        <nav class="nav">{nav_html}</nav>
+      </div>
+    </header>
+    {body}
+    <div class="footer" data-i18n="footer">Powered by Microsoft Innovation Hub</div>
+  </div>
+  <script>
+    // i18n translations - comprehensive
+    const i18n = {{
+      en: {{
+        // Navigation
+        home: "Home",
+        uc1: "UC1",
+        uc2: "UC2",
+        benchmark: "Benchmark",
+        // Home page
+        home_eyebrow: "Consolidated Web UI",
+        home_h2: "Pick a use case, see its value, and inspect the STT model behind it.",
+        home_lead: "This dashboard centralizes UC1 batch QA, UC2 live assistance, and the benchmark matrix. It is driven by config/stt_config.toml, so you can switch STT methods without editing code.",
+        home_uc1_label: "UC1",
+        home_uc2_label: "UC2",
+        home_benchmark_label: "Benchmark default",
+        home_btn_benchmark: "Open benchmark page",
+        home_btn_live: "Open live assistant",
+        home_stats_uc1: "UC1",
+        home_stats_uc2: "UC2",
+        home_stats_benchmark: "Benchmark",
+        home_stats_mode: "Benchmark",
+        home_section_cases: "Use cases",
+        home_section_cases_desc: "Each page explains what the use case does, its value, and the STT model it uses.",
+        home_card_btn: "Open page",
+        home_section_snapshot: "Benchmark snapshot",
+        home_section_snapshot_desc: "The latest benchmark run is summarized here; the dedicated benchmark page shows the full history.",
+        home_btn_view_all: "View all benchmark results",
+        // UC1 page
+        uc1_eyebrow: "UC1 page",
+        uc1_h2: "Quality assurance transcription with batch processing",
+        uc1_what_does: "What this use case does",
+        uc1_recommended: "Recommended when",
+        uc1_rec_1: "You want speaker-aware batch QA reports.",
+        uc1_rec_2: "You need phrase boosting for product names and call-center terms.",
+        uc1_rec_3: "You want the safest default for Traditional Chinese with mixed English.",
+        // UC2 page
+        uc2_eyebrow: "UC2 page",
+        uc2_h2: "Real-time call center assistance",
+        uc2_what_does: "What this use case does",
+        uc2_rec_1: "You want real-time agent guidance during calls.",
+        uc2_rec_2: "You want the UI to surface STT mode and LLM mode clearly.",
+        uc2_rec_3: "You want to compare browser STT, Azure Speech, or Voice Live labels.",
+        uc2_recommended: "Recommended when",
+        uc2_btn_live: "Open live console",
+        uc2_btn_back: "Back to UC2 page",
+        // Benchmark page
+        bench_eyebrow: "Benchmark page",
+        bench_h2: "Run benchmark and inspect all runs in one place.",
+        bench_lead: "Select a local source folder and one or more STT methods to run benchmark directly from this page. Existing run history under reports/benchmarks is listed below.",
+        bench_source_path: "Source path (WAV file or folder)",
+        bench_reference_dataset: "Reference dataset JSONL (optional)",
+        bench_stt_methods: "STT methods (multi-select)",
+        bench_btn_run: "Run benchmark",
+        bench_btn_script: "Open run script guide",
+        bench_btn_home: "Back home",
+        bench_latest_rec: "Latest recommendation",
+        bench_no_rec: "No recommendation yet.",
+        bench_latest_run: "Latest run",
+        bench_none: "none",
+        bench_source_preview: "Source audio preview",
+        bench_source_preview_desc: "These files will be included in the next benchmark run.",
+        bench_table_file: "File",
+        bench_table_path: "Path",
+        bench_table_duration: "Duration",
+        bench_table_size: "Size",
+        bench_table_play: "Play",
+        bench_latest: "Latest benchmark",
+        bench_latest_desc: "Provider averages from the most recent run.",
+        bench_cost_estimate: "Cost estimate",
+        bench_why_matters: "Why this matters",
+        bench_why_1: "Use WER and CER to compare transcription correctness.",
+        bench_why_2: "Use latency to decide whether a model is suitable for real-time assistant flows.",
+        bench_why_3: "Use the cost table to separate production choices from research-only options.",
+        bench_history: "Benchmark history",
+        bench_history_desc: "Each run includes the parsed provider table plus the summary excerpt.",
+        bench_table_provider: "Provider",
+        bench_table_samples: "Samples",
+        bench_table_wer: "WER",
+        bench_table_cer: "CER",
+        bench_table_recall: "Keyword Recall",
+        bench_table_confidence: "Confidence",
+        bench_table_latency: "Latency (ms)",
+        bench_table_cost: "Estimated cost",
+        bench_status: "Run status",
+        bench_summary_excerpt: "Summary excerpt",
+        bench_run_summary: "Summary",
+        bench_no_runs: "No benchmark runs found yet.",
+        bench_no_audio: "No audio files found in the selected path.",
+        // Common
+        voice_model: "Voice model",
+        provider: "Provider",
+        route: "Route",
+        phrase_list: "Phrase list",
+        languages: "Languages",
+        voice_input: "Voice input path",
+        config_title: "Config",
+        footer: "Powered by Microsoft Innovation Hub"
+      }},
+      zh: {{
+        // Navigation
+        home: "首頁",
+        uc1: "UC1",
+        uc2: "UC2",
+        benchmark: "基準測試",
+        // Home page
+        home_eyebrow: "整合網頁介面",
+        home_h2: "選擇一個使用案例，查看其價值，並檢查背後的 STT 模型。",
+        home_lead: "此儀表板集中了 UC1 批量 QA、UC2 實時助手和基準測試矩陣。它由 config/stt_config.toml 驅動，因此您無需編輯程式碼即可切換 STT 方法。",
+        home_uc1_label: "UC1",
+        home_uc2_label: "UC2",
+        home_benchmark_label: "基準預設",
+        home_btn_benchmark: "打開基準測試頁面",
+        home_btn_live: "打開實時助手",
+        home_stats_uc1: "UC1",
+        home_stats_uc2: "UC2",
+        home_stats_benchmark: "基準測試",
+        home_stats_mode: "基準測試",
+        home_section_cases: "使用案例",
+        home_section_cases_desc: "每個頁面都解釋了使用案例的作用、其價值和它使用的 STT 模型。",
+        home_card_btn: "打開頁面",
+        home_section_snapshot: "基準測試快照",
+        home_section_snapshot_desc: "最新的基準測試執行在此處進行了總結；專用的基準測試頁面顯示完整的歷史記錄。",
+        home_btn_view_all: "查看所有基準測試結果",
+        // UC1 page
+        uc1_eyebrow: "UC1 頁面",
+        uc1_h2: "使用批量處理進行品質保證轉錄",
+        uc1_what_does: "此使用案例的作用",
+        uc1_recommended: "建議在以下情況使用",
+        uc1_rec_1: "您想要具有說話者識別的批量 QA 報告。",
+        uc1_rec_2: "您需要為產品名稱和客服術語進行短語提升。",
+        uc1_rec_3: "您想要繁體中文與混合英文的最安全預設。",
+        // UC2 page
+        uc2_eyebrow: "UC2 頁面",
+        uc2_h2: "實時呼叫中心協助",
+        uc2_what_does: "此使用案例的作用",
+        uc2_rec_1: "您想要在通話期間獲得實時客服指導。",
+        uc2_rec_2: "您想要清楚地在 UI 中顯示 STT 模式和 LLM 模式。",
+        uc2_rec_3: "您想要比較瀏覽器 STT、Azure Speech 或 Voice Live 標籤。",
+        uc2_recommended: "建議在以下情況使用",
+        uc2_btn_live: "打開實時主控台",
+        uc2_btn_back: "返回 UC2 頁面",
+        // Benchmark page
+        bench_eyebrow: "基準測試頁面",
+        bench_h2: "在一個地方運行基準測試並檢查所有執行。",
+        bench_lead: "選擇本地源資料夾和一個或多個 STT 方法，以直接從此頁面運行基準測試。 reports/benchmarks 下的現有運行歷史列在下方。",
+        bench_source_path: "源路徑（WAV 檔案或資料夾）",
+        bench_reference_dataset: "參考數據集 JSONL（可選）",
+        bench_stt_methods: "STT 方法（多選）",
+        bench_btn_run: "運行基準測試",
+        bench_btn_script: "打開運行指令碼指南",
+        bench_btn_home: "返回首頁",
+        bench_latest_rec: "最新建議",
+        bench_no_rec: "尚無建議。",
+        bench_latest_run: "最新運行",
+        bench_none: "無",
+        bench_source_preview: "源音訊預覽",
+        bench_source_preview_desc: "下一個基準測試運行將包括這些檔案。",
+        bench_table_file: "檔案",
+        bench_table_path: "路徑",
+        bench_table_duration: "時長",
+        bench_table_size: "大小",
+        bench_table_play: "播放",
+        bench_latest: "最新基準測試",
+        bench_latest_desc: "來自最近運行的提供者平均值。",
+        bench_cost_estimate: "成本估計",
+        bench_why_matters: "為什麼這很重要",
+        bench_why_1: "使用 WER 和 CER 比較轉錄的正確性。",
+        bench_why_2: "使用延遲來決定模型是否適合實時助手流。",
+        bench_why_3: "使用成本表將生產選擇與僅研究選項分開。",
+        bench_history: "基準測試歷史",
+        bench_history_desc: "每個運行都包括解析的提供者表加上摘要摘錄。",
+        bench_table_provider: "提供者",
+        bench_table_samples: "樣本數",
+        bench_table_wer: "WER",
+        bench_table_cer: "CER",
+        bench_table_recall: "關鍵詞回憶率",
+        bench_table_confidence: "信心度",
+        bench_table_latency: "延遲（毫秒）",
+        bench_table_cost: "估計成本",
+        bench_status: "運行狀態",
+        bench_summary_excerpt: "摘要摘錄",
+        bench_run_summary: "摘要",
+        bench_no_runs: "尚未找到基準測試運行。",
+        bench_no_audio: "在選定的路徑中找不到音訊檔案。",
+        // Common
+        voice_model: "語音模型",
+        provider: "提供者",
+        route: "路由",
+        phrase_list: "短語列表",
+        languages: "語言",
+        voice_input: "語音輸入路徑",
+        config_title: "設定",
+        footer: "技術支援：Microsoft Innovation Hub"
+      }}
+    }};
+    
+    let currentLang = localStorage.getItem('voicecall-lang') || 'en';
+    
+    function setLanguage(lang) {{
+      if (!i18n[lang]) lang = 'en';
+      currentLang = lang;
+      localStorage.setItem('voicecall-lang', lang);
+      
+      // Update button states
+      document.getElementById('langBtnEn').classList.toggle('active', lang === 'en');
+      document.getElementById('langBtnZh').classList.toggle('active', lang === 'zh');
+      
+      // Update nav links
+      const navLinks = document.querySelectorAll('.nav-link');
+      const navOrder = ['home', 'uc1', 'uc2', 'benchmark'];
+      navLinks.forEach((link, idx) => {{
+        if (navOrder[idx]) link.textContent = i18n[lang][navOrder[idx]];
+      }});
+      
+      // Update all elements with data-i18n attribute
+      document.querySelectorAll('[data-i18n]').forEach(el => {{
+        const key = el.dataset.i18n;
+        if (i18n[lang][key]) {{
+          if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {{
+            el.placeholder = i18n[lang][key];
+          }} else if (el.tagName === 'LABEL') {{
+            el.textContent = i18n[lang][key];
+          }} else {{
+            el.innerHTML = i18n[lang][key];
+          }}
+        }}
+      }});
+      
+      // Update all elements with data-i18n-text attribute (for text nodes)
+      document.querySelectorAll('[data-i18n-text]').forEach(el => {{
+        const key = el.dataset.i18nText;
+        if (i18n[lang][key]) {{
+          el.textContent = i18n[lang][key];
+        }}
+      }});
+    }}
+    
+    // Update STT method display from config
+    function updateSttMethod() {{
+      const sttLabel = document.getElementById('sttMethodLabel');
+      if (!sttLabel) return;
+      // Get from body data attribute
+      const sttValue = document.body.dataset.sttMethod || 'Configured';
+      sttLabel.textContent = sttValue;
+    }}
+    
+    // Language button event listeners
+    document.getElementById('langBtnEn').addEventListener('click', () => setLanguage('en'));
+    document.getElementById('langBtnZh').addEventListener('click', () => setLanguage('zh'));
+    
+    // Initialize
+    setLanguage(currentLang);
+    updateSttMethod();
+  </script>
+</body>
+</html>"""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Page renderers
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _home_page() -> str:
+    cfg = _current_config()
+    overview = _benchmark_overview()
+    latest = overview["latest"]
+    latest_line = (
+        f"Latest benchmark run: {latest.run_id}"
+        if latest
+        else "No benchmark runs found yet."
+    )
+
+    cards_html = "".join(
+        f"""
+        <div class="card">
+          <div class="eyebrow">{escape(card.short_name)}</div>
+          <h4>{escape(card.name)}</h4>
+          <p>{escape(card.summary)}</p>
+          <div class="chip-row">
+            <span class="chip"><strong>Value</strong> {escape(card.value)}</span>
+            <span class="chip"><strong>Voice model</strong> {escape(card.voice_model)}</span>
+          </div>
+          <div class="cta-row">
+            <a class="btn primary" href="{card.route}">Open page</a>
+          </div>
+        </div>
+        """
+        for card in _USE_CASE_CARDS
+    )
+
+    body = f"""
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow" data-i18n-text="home_eyebrow">Consolidated Web UI</span>
+          <h2 data-i18n="home_h2">Pick a use case, see its value, and inspect the STT model behind it.</h2>
+          <p class="lead" data-i18n="home_lead">
+            This dashboard centralizes UC1 batch QA, UC2 live assistance, and the benchmark matrix.
+            It is driven by <code>config/stt_config.toml</code>, so you can switch STT methods without editing code.
+          </p>
+          <div class="chip-row">
+            <span class="chip"><strong data-i18n-text="home_uc1_label">UC1</strong> {escape(cfg["uc1_provider_label"])}</span>
+            <span class="chip"><strong data-i18n-text="home_uc2_label">UC2</strong> {escape(cfg["uc2_provider_label"])}</span>
+            <span class="chip"><strong data-i18n-text="home_benchmark_label">Benchmark default</strong> {escape(', '.join(cfg["benchmark_default_providers"]))}</span>
+          </div>
+          <div class="cta-row">
+            <a class="btn primary" href="/benchmark" data-i18n-text="home_btn_benchmark">Open benchmark page</a>
+            <a class="btn" href="/uc2/live" data-i18n-text="home_btn_live">Open live assistant</a>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <div class="k" data-i18n-text="home_stats_uc1">UC1</div>
+            <div class="v">{escape(cfg["uc1_provider_label"])}</div>
+          </div>
+          <div class="stat">
+            <div class="k" data-i18n-text="home_stats_uc2">UC2</div>
+            <div class="v">{escape(cfg["uc2_provider_label"])}</div>
+          </div>
+          <div class="stat">
+            <div class="k" data-i18n-text="home_stats_benchmark">Benchmark</div>
+            <div class="v">{'Parallel run enabled' if cfg['benchmark_parallel'] else 'Sequential run by default'}</div>
+          </div>
+          <div class="stat">
+            <div class="k" data-i18n-text="home_stats_mode">Benchmark status</div>
+            <div class="v">{escape(latest_line)}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h3 data-i18n-text="home_section_cases">Use cases</h3>
+          <p data-i18n="home_section_cases_desc">Each page explains what the use case does, its value, and the STT model it uses.</p>
+        </div>
+      </div>
+      <div class="grid cards">{cards_html}</div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h3 data-i18n-text="home_section_snapshot">Benchmark snapshot</h3>
+          <p data-i18n="home_section_snapshot_desc">The latest benchmark run is summarized here; the dedicated benchmark page shows the full history.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <h4>{escape(latest.run_id if latest else 'No benchmark yet')}</h4>
+        <p class="muted">{escape(latest.summary_path.as_posix() if latest else 'Run scripts to generate benchmark data under reports/benchmarks.')}</p>
+        <div class="cta-row">
+          <a class="btn primary" href="/benchmark" data-i18n-text="home_btn_view_all">View all benchmark results</a>
+        </div>
+      </div>
+    </section>
+    """
+    return _page_shell(_DASHBOARD_TITLE, "home", body, "")
+
+
+def _use_case_page(card: UseCaseCard) -> str:
+    cfg = _current_config()
+    if card.id == "uc1":
+        provider = cfg["uc1_provider_label"]
+        phrase_list = "enabled" if cfg["uc1_phrase_list"] else "disabled"
+        languages = ", ".join(cfg["uc1_languages"]) if cfg["uc1_languages"] else "default zh-TW,en-US"
+        extra = [
+            f"Phrase list: {phrase_list}",
+            f"Languages: {languages}",
+            "Output: scored Markdown QA report + JSON artifacts",
+        ]
+    elif card.id == "uc2":
+        provider = cfg["uc2_provider_label"]
+        extra = [
+            "Live transcript windows, compliance cards, and token metrics.",
+            "Open the live console from the button below to exercise the full assistant.",
+            "Output: in-browser assist cards plus optional post-call summary.",
+        ]
+    else:
+        provider = ", ".join(cfg["benchmark_default_providers"])
+        extra = [
+            "This page compares STT quality, speed, and cost across providers.",
+            "Use the matrix script or the benchmark page below to inspect every run.",
+            f"Parallel benchmark mode: {'on' if cfg['benchmark_parallel'] else 'off'}",
+        ]
+
+    details_html = "".join(f"<li>{escape(line)}</li>" for line in card.details + extra)
+    actions_html = "".join(
+        f'<a class="btn{" primary" if index == 0 else ""}" href="{href}">{escape(label)}</a>'
+        for index, (label, href) in enumerate(card.actions)
+    )
+
+    body = f"""
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow" data-i18n-text="{'uc1_eyebrow' if card.id == 'uc1' else 'uc2_eyebrow'}">{escape(card.short_name)} page</span>
+          <h2 data-i18n-text="{'uc1_h2' if card.id == 'uc1' else 'uc2_h2'}">{escape(card.name)}</h2>
+          <p class="lead">{escape(card.value)}</p>
+          <div class="chip-row">
+            <span class="chip"><strong data-i18n-text="voice_model">Voice model</strong> {escape(provider)}</span>
+            <span class="chip"><strong data-i18n-text="route">Route</strong> {escape(card.route)}</span>
+          </div>
+          <div class="cta-row">{actions_html}</div>
+        </div>
+        <div class="panel">
+          <h4 data-i18n-text="{'uc1_what_does' if card.id == 'uc1' else 'uc2_what_does'}">What this use case does</h4>
+          <ul class="detail-list">{details_html}</ul>
+        </div>
+      </div>
+    </section>
+    """
+    stt_label = cfg["uc1_provider_label"] if card.id == "uc1" else (cfg["uc2_provider_label"] if card.id == "uc2" else (cfg["benchmark_default_providers"][0] if cfg["benchmark_default_providers"] else "Configured"))
+    return _page_shell(card.name, card.id, body, stt_label)
+
+
+def _benchmark_page(
+    message: str | None = None,
+    run_summary: BenchmarkRunSummary | None = None,
+    source_path_override: str | None = None,
+  reference_dataset_override: str | None = None,
+    selected_providers_override: list[str] | None = None,
+) -> str:
+    cfg = _current_config()
+    overview = _benchmark_overview()
+    runs: list[BenchmarkRun] = overview["runs"]
+    latest = overview["latest"]
+    selected_source_path = (source_path_override or "data/benchmark_audio").strip()
+    selected_reference_dataset = (reference_dataset_override or _default_benchmark_reference_dataset()).strip()
+    selected_providers = selected_providers_override or list(cfg["benchmark_default_providers"])
+    provider_ids = list(_BENCHMARK_SUPPORTED_PROVIDERS)
+    for provider_id in selected_providers:
+        if provider_id and provider_id not in provider_ids:
+            provider_ids.append(provider_id)
+
+    source_items = _benchmark_source_audio_items(selected_source_path)
+    source_rows = "".join(
+      f"<tr>"
+      f"<td>{escape(item.name)}</td>"
+      f"<td>{escape(item.path)}</td>"
+      f"<td>{escape(_format_seconds(item.duration_seconds))}</td>"
+      f"<td>{escape(_human_size(item.size_bytes))}</td>"
+      f"<td><audio class='preview-player' controls preload='none' src='/api/audio/preview?path={escape(quote(item.path, safe=''), quote=True)}'></audio></td>"
+      f"</tr>"
+      for item in source_items
+    ) or "<tr><td colspan='5' class='muted'>No audio files found in the selected path.</td></tr>"
+
+    provider_checkboxes = "".join(
+        f"<label style=\"display:inline-flex; align-items:center; gap:8px; margin:4px 12px 4px 0;\">"
+        f"<input type=\"checkbox\" name=\"providers\" value=\"{escape(provider_id)}\"{' checked' if provider_id in selected_providers else ''} />"
+        f"<span>{escape(provider_to_display_label(provider_id))} ({escape(provider_id)})</span>"
+        "</label>"
+        for provider_id in provider_ids
+    )
+
+    message_html = ""
+    if message:
+        message_html = f"""
+        <section class="section">
+          <div class="panel">
+            <h4>Run status</h4>
+            <div class="summary-box">{escape(message)}</div>
+          </div>
+        </section>
+        """
+
+    run_result_html = _benchmark_run_result_html(run_summary)
+
+    latest_table_html = "<p class='muted'>No benchmark runs found yet.</p>"
+    latest_cost_html = ""
+    latest_recommendation = ""
+    if latest:
+        rows = "".join(
+            "<tr>"
+            f"<td>{escape(str(row['provider']))}</td>"
+            f"<td>{row['samples']}</td>"
+            f"<td>{row['avg_wer']:.4f}</td>"
+            f"<td>{row['avg_cer']:.4f}</td>"
+            f"<td>{row['avg_keyword_recall']:.4f}</td>"
+          f"<td>{row.get('avg_confidence', 0.0):.4f}</td>"
+            f"<td>{row['avg_latency_ms']:.2f}</td>"
+            "</tr>"
+            for row in latest.providers
+        )
+        latest_table_html = f"""
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Provider</th><th>Samples</th><th>WER</th><th>CER</th><th>Keyword Recall</th><th>Confidence</th><th>Latency (ms)</th>
+              </tr>
+            </thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+        """
+        if latest.cost_rows:
+            cost_rows = "".join(
+                f"<tr><td>{escape(row['provider'])}</td><td>{escape(row['cost'])}</td></tr>"
+                for row in latest.cost_rows
+            )
+            latest_cost_html = f"""
+            <div class="panel">
+              <h4>Cost estimate</h4>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Provider</th><th>Estimated cost</th></tr></thead>
+                  <tbody>{cost_rows}</tbody>
+                </table>
+              </div>
+            </div>
+            """
+        latest_recommendation = latest.recommendation or ""
+
+    run_cards = []
+    for run in runs:
+        run_table = "<p class='muted'>No parsed provider rows found.</p>"
+        if run.providers:
+            run_rows = "".join(
+                "<tr>"
+                f"<td>{escape(str(row['provider']))}</td>"
+                f"<td>{row['samples']}</td>"
+                f"<td>{row['avg_wer']:.4f}</td>"
+                f"<td>{row['avg_cer']:.4f}</td>"
+                f"<td>{row['avg_keyword_recall']:.4f}</td>"
+                f"<td>{row.get('avg_confidence', 0.0):.4f}</td>"
+                f"<td>{row['avg_latency_ms']:.2f}</td>"
+                "</tr>"
+                for row in run.providers
+            )
+            run_table = f"""
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Provider</th><th>Samples</th><th>WER</th><th>CER</th><th>Keyword Recall</th><th>Confidence</th><th>Latency (ms)</th>
+                  </tr>
+                </thead>
+                <tbody>{run_rows}</tbody>
+              </table>
+            </div>
+            """
+        cost_html = ""
+        if run.cost_rows:
+            cost_rows = "".join(
+                f"<tr><td>{escape(row['provider'])}</td><td>{escape(row['cost'])}</td></tr>"
+                for row in run.cost_rows
+            )
+            cost_html = f"""
+            <div class="panel" style="margin-top: 12px;">
+              <h4>Cost</h4>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Provider</th><th>Cost</th></tr></thead>
+                  <tbody>{cost_rows}</tbody>
+                </table>
+              </div>
+            </div>
+            """
+        snippet = escape(run.excerpt or "(no excerpt)")
+        run_cards.append(
+            f"""
+            <article class="card">
+              <div class="chip-row">
+                <span class="chip"><strong>Run</strong> {escape(run.run_id)}</span>
+                <span class="chip"><strong>Summary</strong> {escape(run.summary_path.as_posix())}</span>
+              </div>
+              <div style="margin-top: 12px;">{run_table}</div>
+              {cost_html}
+              <div class="panel" style="margin-top: 12px;">
+                <h4>Summary excerpt</h4>
+                <div class="summary-box">{snippet}</div>
+              </div>
+            </article>
+            """
+        )
+
+    run_cards_html = "".join(run_cards) if run_cards else "<p class='muted'>No benchmark runs available yet.</p>"
+
+    body = f"""
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow" data-i18n-text="bench_eyebrow">Benchmark page</span>
+          <h2 data-i18n="bench_h2">Run benchmark and inspect all runs in one place.</h2>
+          <p class="lead" data-i18n="bench_lead">
+            Select a local source folder and one or more STT methods to run benchmark directly from this page.
+            Existing run history under <code>reports/benchmarks</code> is listed below.
+          </p>
+          <form method="post" action="/benchmark/run" style="margin-top:12px;">
+            <label for="benchmark_source_path" data-i18n-text="bench_source_path">Source path (WAV file or folder)</label>
+            <input id="benchmark_source_path" name="source_path" type="text" value="{escape(selected_source_path)}" placeholder="e.g. data/benchmark_audio" style="width:100%; margin-top:6px;" />
+            <label for="benchmark_reference_dataset" style="margin-top:10px; display:block;" data-i18n-text="bench_reference_dataset">Reference dataset JSONL (optional)</label>
+            <input id="benchmark_reference_dataset" name="reference_dataset_path" type="text" value="{escape(selected_reference_dataset)}" placeholder="e.g. data/stt_benchmark.jsonl" style="width:100%; margin-top:6px;" />
+            <div class="panel" style="margin-top:12px;">
+              <h4 style="margin-top:0;" data-i18n-text="bench_stt_methods">STT methods (multi-select)</h4>
+              <div>{provider_checkboxes}</div>
+            </div>
+            <div class="cta-row">
+              <button class="btn primary" type="submit" data-i18n-text="bench_btn_run">Run benchmark</button>
+              <a class="btn" href="/benchmark/script" data-i18n-text="bench_btn_script">Open run script guide</a>
+              <a class="btn" href="/" data-i18n-text="bench_btn_home">Back home</a>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <h4 data-i18n-text="bench_latest_rec">Latest recommendation</h4>
+          <div class="summary-box">{escape(latest_recommendation or 'No recommendation yet.')}</div>
+          <div style="margin-top: 12px;" class="muted">Latest run: {escape(latest.run_id if latest else 'none')}</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h3 data-i18n-text="bench_source_preview">Source audio preview</h3>
+          <p data-i18n="bench_source_preview_desc">These files will be included in the next benchmark run.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th data-i18n-text="bench_table_file">File</th><th data-i18n-text="bench_table_path">Path</th><th data-i18n-text="bench_table_duration">Duration</th><th data-i18n-text="bench_table_size">Size</th><th data-i18n-text="bench_table_play">Play</th></tr>
+          </thead>
+          <tbody>{source_rows}</tbody>
+        </table>
+      </div>
+    </section>
+
+    {message_html}
+    {run_result_html}
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h3 data-i18n-text="bench_latest">Latest benchmark</h3>
+          <p data-i18n="bench_latest_desc">Provider averages from the most recent run.</p>
+        </div>
+      </div>
+      {latest_table_html}
+    </section>
+
+    <section class="section split">
+      {latest_cost_html}
+      <div class="panel">
+        <h4 data-i18n-text="bench_why_matters">Why this matters</h4>
+        <ul class="detail-list">
+          <li data-i18n-text="bench_why_1">Use WER and CER to compare transcription correctness.</li>
+          <li data-i18n-text="bench_why_2">Use latency to decide whether a model is suitable for real-time assistant flows.</li>
+          <li data-i18n-text="bench_why_3">Use the cost table to separate production choices from research-only options.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h3 data-i18n-text="bench_history">Benchmark history</h3>
+          <p data-i18n="bench_history_desc">Each run includes the parsed provider table plus the summary excerpt.</p>
+        </div>
+      </div>
+      <div class="grid">{run_cards_html}</div>
+    </section>
+    """
+    benchmark_stt = cfg["benchmark_default_providers"][0] if cfg["benchmark_default_providers"] else "Configured"
+    return _page_shell("Benchmark", "benchmark", body, benchmark_stt)
+
+
+async def _home(_: Request) -> HTMLResponse:
+    return HTMLResponse(_home_page())
+
+
+async def _uc1(_: Request) -> HTMLResponse:
+  return HTMLResponse(_uc1_page())
+
+
+async def _uc1_run(request: Request) -> HTMLResponse:
+  source_path: str | None = None
+  stt_provider: str | None = None
+  run_summary: Uc1RunSummary | None = None
+
+  try:
+    form = await request.form()
+    source_path_raw = str(form.get("source_path") or "").strip()
+    stt_provider_raw = str(form.get("stt_provider") or "").strip()
+    source_path = source_path_raw or None
+    stt_provider = stt_provider_raw or None
+
+    run_summary = await run_uc1(
+      source_path_override=source_path,
+      stt_provider_override=stt_provider,
+    )
+
+    if run_summary.exit_code == 0:
+      message = "UC1 quality check completed successfully. Results are shown below."
+    elif run_summary.exit_code == 1:
+      message = run_summary.message or "No input audio found for this source path."
+    else:
+      message = run_summary.message or "UC1 quality check finished with errors."
+  except Exception as exc:
+    message = f"UC1 quality check failed: {exc}\n\n{traceback.format_exc()}"
+
+  return HTMLResponse(
+    _uc1_page(
+      message=message,
+      run_summary=run_summary,
+      source_path_override=source_path,
+      stt_provider_override=stt_provider,
+    )
+  )
+
+
+async def _uc2(_: Request) -> HTMLResponse:
+    return HTMLResponse(_use_case_page(_USE_CASE_CARDS[1]))
+
+
+async def _benchmark(_: Request) -> HTMLResponse:
+    return HTMLResponse(_benchmark_page())
+
+
+async def _benchmark_run(request: Request) -> HTMLResponse:
+  source_path = ""
+  reference_dataset_path = ""
+  selected_providers: list[str] = []
+  run_summary: BenchmarkRunSummary | None = None
+  try:
+    form = await request.form()
+    source_path = str(form.get("source_path") or "").strip()
+    reference_dataset_path = str(form.get("reference_dataset_path") or "").strip()
+    if not reference_dataset_path:
+      reference_dataset_path = _default_benchmark_reference_dataset()
+    selected_providers = [
+      str(provider).strip()
+      for provider in form.getlist("providers")
+      if str(provider).strip()
+    ]
+
+    if not source_path:
+      raise ValueError("Please provide a WAV source path.")
+    if not selected_providers:
+      raise ValueError("Please select at least one STT method.")
+
+    run_summary = await asyncio.to_thread(
+      _run_benchmark_from_source,
+      source_path,
+      selected_providers,
+      (reference_dataset_path or None),
+    )
+    message = "Benchmark completed. Summary and artifacts are shown below."
+  except Exception as exc:
+    message = f"Benchmark run failed: {exc}"
+
+  return HTMLResponse(
+    _benchmark_page(
+      message=message,
+      run_summary=run_summary,
+      source_path_override=source_path,
+      reference_dataset_override=reference_dataset_path,
+      selected_providers_override=selected_providers,
+    )
+  )
+
+
+async def _benchmark_script(_: Request) -> HTMLResponse:
+    body = """
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow">Run guide</span>
+          <h2>Benchmark script entrypoint</h2>
+          <p class="lead">Use the matrix script to generate or refresh benchmark runs, then return here to inspect the results.</p>
+          <div class="chip-row">
+            <span class="chip"><strong>Config</strong> config/stt_config.toml</span>
+            <span class="chip"><strong>Script</strong> start_stt_benchmark_matrix.ps1</span>
+          </div>
+          <div class="cta-row">
+            <a class="btn primary" href="/benchmark">Back to benchmark</a>
+            <a class="btn" href="/">Home</a>
+          </div>
+        </div>
+          <div class="panel">
+          <h4>Example</h4>
+          <div class="summary-box">.\\start_stt_benchmark_matrix.ps1 -UseConfigDefaults -Parallel</div>
+        </div>
+      </div>
+    </section>
+    """
+    return HTMLResponse(_page_shell("Benchmark script", "benchmark", body))
+
+
+async def _uc2_live_unavailable(_: Request) -> HTMLResponse:
+    body = """
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow">UC2 live console</span>
+          <h2>Foundry runtime not configured yet</h2>
+          <p class="lead">
+            The live assistant page needs FOUNDRY_PROJECT_ENDPOINT or VOICE_ASSIST_PROJECT_ENDPOINT.
+            You can still use the dashboard, UC1 pages, and benchmark views without it.
+          </p>
+          <div class="cta-row">
+            <a class="btn primary" href="/uc2">Back to UC2 page</a>
+            <a class="btn" href="/">Home</a>
+          </div>
+        </div>
+        <div class="panel">
+          <h4>What to set</h4>
+          <ul class="detail-list">
+            <li>FOUNDRY_PROJECT_ENDPOINT</li>
+            <li>FOUNDRY_MODEL_DEPLOYMENT_NAME or VOICE_ASSIST_MODEL_DEPLOYMENT_NAME</li>
+            <li>FOUNDRY_AGENT_NAME / FOUNDRY_AGENT_VERSION if you want a named hosted agent</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+    """
+    return HTMLResponse(_page_shell("UC2 live console", "uc2", body))
+
+
+async def _api_benchmarks(_: Request) -> JSONResponse:
+    cfg = _current_config()
+    overview = _benchmark_overview()
+    runs = []
+    for run in overview["runs"]:
+        runs.append(
+            {
+                "run_id": run.run_id,
+                "summary_path": run.summary_path.as_posix(),
+                "providers": run.providers,
+                "cost_rows": run.cost_rows,
+                "recommendation": run.recommendation,
+                "excerpt": run.excerpt,
+            }
+        )
+    return JSONResponse(
+        {
+            "config": cfg,
+            "runs": runs,
+            "latest_run": runs[0] if runs else None,
+        }
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# App factory / entrypoint
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def _api_uc1_report(request: Request) -> JSONResponse:
+    """Serve markdown report content as HTML-converted JSON."""
+    path = request.query_params.get("path", "")
+    if not path:
+        return JSONResponse({"error": "Missing path parameter"}, status_code=400)
+    
+    # Ensure path is safe (no directory traversal)
+    try:
+        resolved = Path(path).resolve()
+        if not resolved.exists():
+            return JSONResponse({"error": "Report not found"}, status_code=404)
+        
+        with open(resolved, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # Convert markdown to HTML if markdown library is available.
+        html_content = content
+        if HAS_MARKDOWN:
+          try:
+            html_content = markdown.markdown(
+              content,
+              extensions=["tables", "fenced_code", "codehilite"],
+            )
+            # Defensive sanitization before returning HTML for modal rendering.
+            html_content = re.sub(r"(?is)<script.*?>.*?</script>", "", html_content)
+            html_content = re.sub(r"(?is)<style.*?>.*?</style>", "", html_content)
+            html_content = re.sub(r"\son[a-zA-Z]+\s*=\s*(['\"]).*?\1", "", html_content)
+            html_content = re.sub(r"\son[a-zA-Z]+\s*=\s*[^\s>]+", "", html_content)
+            html_content = re.sub(
+              r"(?i)\s(href|src)\s*=\s*(['\"])\s*javascript:[^'\"]*\2",
+              r" \1=\"#\"",
+              html_content,
+            )
+          except Exception:
+            # Fallback to plain content if conversion fails.
+            html_content = f"<pre>{escape(content)}</pre>"
+        else:
+          # Fallback: wrap in pre tag if markdown library not available.
+          html_content = f"<pre>{escape(content)}</pre>"
+        
+        return JSONResponse({
+            "name": resolved.name,
+            "content": html_content,
+            "path": str(path),
+            "is_html": True
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def _api_audio_preview(request: Request) -> Response:
+    path = request.query_params.get("path", "").strip()
+    if not path:
+        return JSONResponse({"error": "Missing path parameter"}, status_code=400)
+
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except Exception:
+        return JSONResponse({"error": "Invalid path"}, status_code=400)
+
+    if not resolved.exists() or not resolved.is_file():
+        return JSONResponse({"error": "Audio file not found"}, status_code=404)
+
+    if resolved.suffix.lower() not in {".wav", ".mp3", ".m4a", ".flac", ".ogg"}:
+        return JSONResponse({"error": "Unsupported audio format"}, status_code=400)
+
+    media_type, _ = mimetypes.guess_type(str(resolved))
+    return FileResponse(str(resolved), media_type=media_type or "application/octet-stream")
+
+
+def create_app() -> InvocationAgentServerHost:
+    load_dotenv(override=False)
+    try:
+        live_uc2_app = create_uc2_live_app()
+    except ValueError:
+        live_uc2_app = InvocationAgentServerHost(
+            routes=[Route("/", _uc2_live_unavailable, methods=["GET"], name="uc2_live_unavailable")]
+        )
+
+    routes = [
+        Route("/", _home, methods=["GET"], name="home"),
+        Route("/uc1", _uc1, methods=["GET"], name="uc1"),
+        Route("/uc1/run", _uc1_run, methods=["POST"], name="uc1_run"),
+        Route("/api/uc1/report", _api_uc1_report, methods=["GET"], name="api_uc1_report"),
+        Route("/api/audio/preview", _api_audio_preview, methods=["GET"], name="api_audio_preview"),
+        Route("/uc2", _uc2, methods=["GET"], name="uc2"),
+        Route("/benchmark", _benchmark, methods=["GET"], name="benchmark"),
+        Route("/benchmark/run", _benchmark_run, methods=["POST"], name="benchmark_run"),
+        Route("/benchmark/script", _benchmark_script, methods=["GET"], name="benchmark_script"),
+        Route("/api/benchmarks", _api_benchmarks, methods=["GET"], name="api_benchmarks"),
+        Mount("/uc2/live", app=live_uc2_app, name="uc2_live"),
+    ]
+    return InvocationAgentServerHost(routes=routes)
+
+
+def main() -> None:
+    create_app().run()

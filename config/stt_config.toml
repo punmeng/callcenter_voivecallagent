@@ -1,0 +1,55 @@
+# STT provider configuration for VoiceCall Verify.
+# Edit this file to switch STT methods per use case without touching code or env vars.
+#
+# Supported providers:
+#   azure-speech-stt               Real-time SDK + auto LID + speaker diarization (best quality, slowest)
+#   azure-speech-stt-fast          SpeechRecognizer, fixed locale, no LID/diarization (fastest SDK path)
+#   azure-speech-stt-fast-phrase-list  Same + phrase list boosting
+#   azure-speech-stt-rest          REST fast-transcription endpoint (lower cost, no diarization)
+#   azure-speech-stt-custom        Custom Speech model endpoint (set SPEECH_CUSTOM_ENDPOINT_ID)
+#   mai-transcribe-1.5             MAI-Transcribe fast transcription (Simplified Chinese output)
+#   gpt-audio-transcribe           Azure OpenAI audio transcription (set GPT_AUDIO_TRANSCRIBE_DEPLOYMENT)
+#   voice-live-api                 Voice Live API (experimental; requires AZURE_VOICELIVE_ENDPOINT)
+
+# ─── UC1: Batch call quality check ───────────────────────────────────────────
+[uc1]
+# Provider used for offline audio → transcript conversion.
+# azure-speech-stt is recommended: it supports diarization (speaker labels) which
+# UC1 uses to separate agent/customer turns in the final report.
+# Changing to a non-diarized provider will still work — all text is attributed to "Speaker".
+provider = "azure-speech-stt"
+
+# Enable phrase list boosting from PHRASE_LIST_PATH (helps with domain terms and product names).
+phrase_list = true
+
+# Optional: override languages for this use case only.
+# Defaults to SPEECH_LANGUAGES env var (e.g. zh-TW,en-US).
+# Uncomment and edit to pin specific locales:
+# languages = ["zh-TW", "en-US"]
+
+# ─── UC2: Real-time call center assistant ────────────────────────────────────
+[uc2]
+# UC2 captures audio in the browser and sends the transcript text to the server.
+# This field controls the STT service label shown in the UC2 metrics UI —
+# it names the client-side service that produced the transcript.
+#
+# Common values:
+#   azure-speech-stt    → Azure Speech SDK used in the browser (recommended)
+#   browser-web-speech  → Native browser Web Speech API
+#   voice-live-api      → Voice Live API via browser SDK
+provider = "voice-live-api"
+
+# ─── Benchmark: STT accuracy & latency comparison ────────────────────────────
+[benchmark]
+# Providers included by default when running start_stt_benchmark_matrix.ps1 -UseConfigDefaults
+# or when eval_stt_quality.py is called with no --providers argument.
+default_providers = [
+    "azure-speech-stt",
+    "azure-speech-stt-fast",
+    "azure-speech-stt-fast-phrase-list",
+    "azure-speech-stt-rest",
+    "mai-transcribe-1.5",
+]
+
+# Run providers concurrently when -UseConfigDefaults is active (reduces wall-clock time).
+parallel = true

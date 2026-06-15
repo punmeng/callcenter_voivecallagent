@@ -1,0 +1,90 @@
+id: stt-benchmark-v1
+name: STT Benchmark Method v1
+status: active
+owner: voiceqa
+entrypoints:
+  cli: python scripts/eval_stt_quality.py
+  matrix_script: start_stt_benchmark_matrix.ps1
+default_providers:
+  - azure-speech-stt
+  - azure-speech-stt-fast
+  - azure-speech-stt-fast-phrase-list
+  - azure-speech-stt-rest
+  - mai-transcribe-1.5
+optional_providers:
+  - azure-speech-stt
+  - azure-speech-stt-fast
+  - azure-speech-stt-fast-phrase-list
+  - azure-speech-stt-rest
+  - azure-speech-stt-custom
+  - gpt-audio-transcribe
+  - voice-live-api
+  - mai-transcribe-1.5
+outputs:
+  - reports/benchmarks/<run-id>/summary.md
+  - reports/benchmarks/<run-id>/<provider>.results.jsonl
+selection_rules:
+  - prioritize lower WER/CER and higher keyword recall
+  - use latency/cost as tie-breakers
+  - if Voice Live transport errors occur, mark it as unsuitable for that run
+
+model_selection_principles:
+  objective:
+    choose the most reliable STT method for production call-center workloads,
+    balancing accuracy, latency, stability, and cost instead of optimizing a single metric.
+
+  hard_gates:
+    - service must complete at least 95% of samples successfully in the target dataset
+    - p95 latency must meet scenario SLA (realtime <= 2500 ms, batch <= 15000 ms)
+    - no blocking compliance or security gap for required data path
+    - for multilingual scenarios, method must pass both zh-TW and en-US mixed-call samples
+
+  scoring_weights:
+    accuracy: 0.70
+    latency: 0.20
+    cost: 0.10
+
+  primary_metrics:
+    - WER (lower is better)
+    - CER (lower is better)
+    - keyword_recall (higher is better)
+
+  secondary_metrics:
+    - avg_latency_ms
+    - p95_latency_ms
+    - estimated_cost_usd
+    - success_rate
+
+  tie_breakers:
+    - choose higher success_rate first
+    - then lower p95_latency_ms
+    - then lower estimated_cost_usd
+
+  scenario_guidance:
+    realtime_assistant:
+      prioritize: [latency, stability, acceptable_accuracy]
+      preferred_candidates: [voice-live-api, azure-speech-stt-fast-phrase-list]
+    batch_quality_check:
+      prioritize: [accuracy, keyword_recall, diarization_or_turn_quality]
+      preferred_candidates: [azure-speech-stt, azure-speech-stt-custom]
+    cost_sensitive_batch:
+      prioritize: [cost, acceptable_accuracy, throughput]
+      preferred_candidates: [azure-speech-stt-rest, mai-transcribe-1.5]
+
+overall_review_checklist:
+  - confirm dataset covers real traffic buckets (quiet/noisy, short/long, mixed language)
+  - run benchmark with the same dataset and scoring profile across all candidates
+  - inspect both aggregate metrics and worst-case samples, not only averages
+  - verify critical business terms (brand names, plan names, intent terms) in keyword recall
+  - review top failure transcripts and classify root causes (acoustic, language, endpoint, timeout)
+  - validate operational fit (auth mode, endpoint readiness, monitoring, retry behavior)
+  - decide winner + fallback method, and record rollback trigger thresholds
+
+decision_output_template:
+  fields:
+    - recommended_method
+    - fallback_method
+    - confidence_level
+    - key_risks
+    - mitigation_plan
+    - next_recheck_date

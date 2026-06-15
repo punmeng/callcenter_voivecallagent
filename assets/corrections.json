@@ -6,5 +6,185 @@
   "Power BI": [
     "powerbi",
     "power be i"
+  ],
+  "遠傳": [
+    "FET",
+    "fet",
+    "F E T",
+    "遠傳電信",
+    "Far EasTone"
+  ],
+  "台灣大哥大": [
+    "TWM",
+    "Taiwan Mobile",
+    "台哥大",
+    "台灣大",
+    "台灣大哥"
+  ],
+  "中華電信": [
+    "CHT",
+    "Chunghwa Telecom",
+    "中華",
+    "中華電訊"
+  ],
+  "客戶服務": [
+    "customer service",
+    "customer support",
+    "service desk",
+    "客服"
+  ],
+  "帳單查詢": [
+    "billing inquiry",
+    "bill check",
+    "account balance",
+    "帳單"
+  ],
+  "申請門號": [
+    "apply for a number",
+    "new line activation",
+    "號碼申請",
+    "申請新號碼"
+  ],
+  "續約優惠": [
+    "renewal discount",
+    "contract renewal",
+    "renew plan",
+    "續約"
+  ],
+  "國際漫遊": [
+    "international roaming",
+    "overseas service",
+    "漫遊"
+  ],
+  "4G網路": [
+    "4G network",
+    "four G",
+    "4G coverage",
+    "4G訊號"
+  ],
+  "5G服務": [
+    "5G service",
+    "five G",
+    "5G network",
+    "五G"
+  ],
+  "月租費": [
+    "monthly fee",
+    "monthly charge",
+    "plan cost",
+    "租費",
+    "月費"
+  ],
+  "超額費用": [
+    "overage charge",
+    "extra cost",
+    "additional fee",
+    "超額",
+    "超齡費用"
+  ],
+  "解約": [
+    "cancel service",
+    "terminate contract",
+    "cancel plan",
+    "解除"
+  ],
+  "客服代表": [
+    "customer representative",
+    "service agent",
+    "agent",
+    "代表",
+    "客服人員"
+  ],
+  "轉帳": [
+    "transfer",
+    "account transfer",
+    "porta",
+    "轉號",
+    "號碼轉移"
+  ],
+  "問題解決": [
+    "troubleshooting",
+    "issue resolved",
+    "technical support",
+    "問題",
+    "故障排除"
+  ],
+  "來電顯示": [
+    "caller ID",
+    "calling line identification",
+    "call display",
+    "來顯"
+  ],
+  "語音信箱": [
+    "voicemail",
+    "voice message",
+    "語音",
+    "留言"
+  ],
+  "簡訊": [
+    "SMS",
+    "text message",
+    "message",
+    "短訊"
+  ],
+  "資料用量": [
+    "data usage",
+    "data consumption",
+    "data plan",
+    "數據",
+    "流量"
+  ],
+  "上網速度": [
+    "internet speed",
+    "connection speed",
+    "speed test",
+    "網速",
+    "上網"
+  ],
+  "分享方案": [
+    "family plan",
+    "shared plan",
+    "group plan",
+    "分享",
+    "方案"
+  ],
+  "優先客戶": [
+    "VIP customer",
+    "priority customer",
+    "valued customer",
+    "優先",
+    "VIP"
+  ],
+  "感謝您": [
+    "thank you",
+    "thanks",
+    "appreciate",
+    "謝謝"
+  ],
+  "很樂意幫助": [
+    "happy to help",
+    "glad to assist",
+    "pleased to help",
+    "樂意"
+  ],
+  "還有其他問題嗎": [
+    "any other questions",
+    "anything else",
+    "other issues",
+    "還有"
+  ],
+  "請稍候": [
+    "please wait",
+    "one moment",
+    "hold on",
+    "稍候",
+    "等一下"
+  ],
+  "已為您查詢": [
+    "I've checked",
+    "I found",
+    "I verified",
+    "查詢完成",
+    "已確認"
   ]
 }

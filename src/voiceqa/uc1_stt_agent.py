@@ -13,9 +13,17 @@ from .models import Transcript, TranscriptTurn
 
 
 class SttAgent:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        enable_phrase_list: bool = True,
+        enable_corrections: bool = True,
+    ) -> None:
         self.settings = settings
-        self.corrections = CorrectionEngine.from_file(settings.corrections_path)
+        self.enable_phrase_list = enable_phrase_list
+        self.enable_corrections = enable_corrections
+        self.corrections = CorrectionEngine.from_file(settings.corrections_path) if enable_corrections else None
 
     def transcribe_audio(self, audio_path: Path) -> Transcript:
         speech_config = self._build_speech_config()
@@ -43,7 +51,7 @@ class SttAgent:
             if result.reason != speechsdk.ResultReason.RecognizedSpeech:
                 return
 
-            text = self.corrections.apply(result.text)
+            text = self.corrections.apply(result.text) if self.corrections else result.text
             offset_seconds = result.offset / 10_000_000
             duration_seconds = result.duration / 10_000_000
             speaker = result.speaker_id or "Unknown"
@@ -106,6 +114,9 @@ class SttAgent:
         return config
 
     def _attach_phrase_list(self, recognizer: speechsdk.Recognizer) -> None:
+        if not self.enable_phrase_list:
+            return
+
         phrase_path = self.settings.phrase_list_path
         if not phrase_path.exists():
             return

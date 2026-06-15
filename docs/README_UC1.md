@@ -1,5 +1,7 @@
 # UC1 Code - Blob Audio to Markdown QA Report
 
+Current build version: `v1.0.0`
+
 This implementation follows your UC1 spec and now uses a shared Microsoft Agent Framework runtime helper:
 
 - Blob audio input from Azure Blob Storage
@@ -96,6 +98,10 @@ $env:LOCAL_AUDIO_PATH = "C:\\recordings\\call_001.wav"
 $env:PYTHONPATH = "src"
 python -m voiceqa.uc1_main
 ```
+
+Dashboard note:
+
+- When using the consolidated dashboard (`start_voice_ui.ps1`), UC1 now supports source audio preview with inline audio playback and direct report viewing in modal.
 
 ## 7. Foundry portal agent example
 

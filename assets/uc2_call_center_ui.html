@@ -6,53 +6,149 @@
   <title>VoiceCall UC2 Console</title>
   <style>
     :root {
-      --bg: #f2efe8;
-      --surface: #fffaf3;
-      --ink: #1e1e1e;
-      --accent: #0b6e4f;
-      --accent-2: #b6482d;
-      --soft: #d9cdb8;
-      --ok: #136f63;
-      --warn: #b66a11;
-      --err: #a22c29;
-      --shadow: 0 16px 40px rgba(40, 29, 10, 0.14);
+      --bg-base: #0f172a;
+      --ink: #ecf0ff;
+      --muted: #c9d0e8;
+      --glass: rgba(18, 22, 34, 0.72);
+      --glass-soft: rgba(29, 35, 54, 0.5);
+      --line: rgba(196, 205, 238, 0.22);
+      --ok: #6fe6be;
+      --warn: #ffd780;
+      --err: #ff9d9d;
+      --shadow: 0 22px 52px rgba(8, 10, 20, 0.4);
+      --brand: #7aa0ff;
+      --brand-2: #67d9ff;
     }
 
     * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      font-family: "Aptos", "Segoe UI Variable", "Trebuchet MS", sans-serif;
+      font-family: "Aptos Display", "Aptos", "Segoe UI Variable", "Trebuchet MS", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(circle at 8% 18%, #eadfcd 0, transparent 30%),
-        radial-gradient(circle at 94% 84%, #d7ebdf 0, transparent 28%),
-        linear-gradient(165deg, #f4f1ea, #ebe4d6 48%, #f7f2e8 100%);
+        linear-gradient(165deg, rgba(30, 33, 63, 0.24), rgba(19, 22, 36, 0.76)),
+        radial-gradient(circle at 20% 14%, rgba(255, 174, 174, 0.46), transparent 40%),
+        radial-gradient(circle at 82% 8%, rgba(120, 117, 255, 0.34), transparent 38%),
+        radial-gradient(circle at 50% 112%, rgba(145, 191, 255, 0.27), transparent 45%),
+        url('https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&w=1800&q=80') center / cover no-repeat,
+        var(--bg-base);
       min-height: 100vh;
-      padding: 20px;
+      padding: 16px 20px 28px;
     }
 
-    .app {
+    .frame {
       max-width: 1280px;
       margin: 0 auto;
-      display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 18px;
       animation: rise 0.55s ease;
     }
 
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .brand-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(16, 20, 32, 0.76);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: #dbe6ff;
+    }
+
+    .ms-mark {
+      width: 14px;
+      height: 14px;
+      background:
+        linear-gradient(#f35325, #f35325) 0 0 / 6px 6px no-repeat,
+        linear-gradient(#81bc06, #81bc06) 8px 0 / 6px 6px no-repeat,
+        linear-gradient(#05a6f0, #05a6f0) 0 8px / 6px 6px no-repeat,
+        linear-gradient(#ffba08, #ffba08) 8px 8px / 6px 6px no-repeat;
+      border-radius: 2px;
+      flex: 0 0 auto;
+    }
+
+    .status-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .hero {
+      text-align: center;
+      margin-bottom: 22px;
+    }
+
+    .hero h1 {
+      margin: 0 0 14px;
+      font-size: clamp(1.7rem, 3vw, 2.35rem);
+      letter-spacing: 0.3px;
+      font-weight: 800;
+      text-shadow: 0 12px 34px rgba(7, 10, 18, 0.45);
+    }
+
+    .search-shell {
+      width: min(760px, 100%);
+      margin: 0 auto;
+      text-align: left;
+      background: rgba(15, 18, 30, 0.86);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 14px 18px 12px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .search-hint {
+      color: var(--muted);
+      font-size: 0.97rem;
+      margin-bottom: 8px;
+    }
+
+    .hero-pills {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    .hero-pill {
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 7px 14px;
+      background: rgba(14, 18, 30, 0.64);
+      color: #dbe3ff;
+      font-size: 0.88rem;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 1fr;
+      gap: 18px;
+    }
+
     .panel {
-      background: color-mix(in srgb, var(--surface) 88%, white 12%);
-      border: 1px solid #d8cdb9;
+      background: var(--glass);
+      border: 1px solid var(--line);
       border-radius: 18px;
       box-shadow: var(--shadow);
       overflow: hidden;
+      backdrop-filter: blur(10px);
     }
 
     .panel-head {
       padding: 14px 16px;
-      background: linear-gradient(90deg, #f8f1e5, #fbf7f0);
-      border-bottom: 1px solid #e7dac4;
+      background: linear-gradient(90deg, rgba(82, 108, 189, 0.22), rgba(88, 213, 255, 0.12));
+      border-bottom: 1px solid var(--line);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -69,14 +165,57 @@
       font-size: 0.86rem;
       padding: 5px 10px;
       border-radius: 999px;
-      background: #ece2ce;
-      color: #6f562a;
+      background: rgba(200, 210, 244, 0.2);
+      color: #d8e2ff;
       font-weight: 700;
+      border: 1px solid rgba(210, 219, 255, 0.3);
     }
 
-    .status.ok { background: #d6efe8; color: #0c6358; }
-    .status.warn { background: #faebcc; color: #84500d; }
-    .status.err { background: #f6d2d2; color: #872223; }
+    .status.ok { color: #072c1f; background: var(--ok); border-color: transparent; }
+    .status.warn { color: #382201; background: var(--warn); border-color: transparent; }
+    .status.err { color: #3f0909; background: var(--err); border-color: transparent; }
+
+    .lang-selector {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .lang-btn {
+      padding: 7px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(196, 205, 238, 0.3);
+      background: rgba(18, 23, 36, 0.84);
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .lang-btn.active {
+      background: rgba(122, 160, 255, 0.24);
+      color: var(--ink);
+      border-color: rgba(196, 205, 238, 0.5);
+    }
+
+    .lang-btn:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.03);
+    }
+
+    .stt-method {
+      font-size: 0.88rem;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: rgba(122, 160, 255, 0.12);
+      border: 1px solid rgba(122, 160, 255, 0.24);
+    }
+
+    .stt-method strong {
+      color: var(--brand);
+    }
 
     .panel-body { padding: 16px; }
 
@@ -90,14 +229,14 @@
     input, select, textarea, button {
       font: inherit;
       border-radius: 10px;
-      border: 1px solid #c8bba5;
+      border: 1px solid rgba(194, 206, 242, 0.3);
       padding: 10px 12px;
-      background: #fffdf8;
+      background: rgba(18, 23, 36, 0.84);
       color: var(--ink);
     }
 
     input:focus, select:focus, textarea:focus {
-      outline: 2px solid color-mix(in srgb, var(--accent) 40%, white);
+      outline: 2px solid rgba(125, 182, 255, 0.85);
       outline-offset: 1px;
     }
 
@@ -113,17 +252,17 @@
     button:hover { transform: translateY(-1px); filter: brightness(1.03); }
     button:disabled { cursor: not-allowed; opacity: 0.55; transform: none; }
 
-    .btn-main { background: linear-gradient(135deg, #19735b, #0d5c45); color: #fff; }
-    .btn-sub { background: linear-gradient(135deg, #305b82, #294f72); color: #fff; }
-    .btn-warn { background: linear-gradient(135deg, #b04a2f, #943720); color: #fff; }
-    .btn-ghost { background: #efe4d2; color: #5e4727; }
+    .btn-main { background: linear-gradient(140deg, #6584ff, #3d63ee); color: #fff; }
+    .btn-sub { background: linear-gradient(140deg, #3f89d6, #2c5ebf); color: #fff; }
+    .btn-warn { background: linear-gradient(140deg, #d86a4b, #a73a2b); color: #fff; }
+    .btn-ghost { background: rgba(94, 112, 168, 0.23); color: #e7eeff; }
 
     .live-box {
       min-height: 140px;
       max-height: 240px;
       overflow: auto;
-      background: #fff;
-      border: 1px solid #d9cbb4;
+      background: rgba(12, 16, 28, 0.72);
+      border: 1px solid rgba(187, 201, 244, 0.25);
       border-radius: 12px;
       padding: 10px;
     }
@@ -131,12 +270,12 @@
     .line {
       font-size: 0.93rem;
       padding: 8px 9px;
-      border-bottom: 1px dashed #ecdcc6;
+      border-bottom: 1px dashed rgba(198, 209, 240, 0.25);
       animation: fadeIn 0.28s ease;
     }
 
     .line:last-child { border-bottom: 0; }
-    .line .spk { font-weight: 700; color: #6b4b1c; margin-right: 8px; }
+    .line .spk { font-weight: 700; color: #8ec5ff; margin-right: 8px; }
 
     .cards {
       display: grid;
@@ -147,28 +286,28 @@
 
     .card {
       border-radius: 12px;
-      border: 1px solid #d6cab6;
-      background: #fff;
+      border: 1px solid rgba(193, 206, 246, 0.24);
+      background: rgba(19, 24, 38, 0.82);
       padding: 12px;
       animation: slideIn 0.25s ease;
     }
 
-    .card h4 { margin: 0 0 8px; font-size: 0.95rem; color: #345d7a; }
+    .card h4 { margin: 0 0 8px; font-size: 0.95rem; color: #9ac4ff; }
     .card p { margin: 0; font-size: 0.93rem; line-height: 1.45; }
-    .card .src { margin-top: 8px; font-size: 0.78rem; color: #7f6a4a; }
+    .card .src { margin-top: 8px; font-size: 0.78rem; color: #acb9dc; }
 
     .summary {
       margin-top: 12px;
-      border-top: 1px solid #e4d6c0;
+      border-top: 1px solid rgba(194, 205, 240, 0.18);
       padding-top: 12px;
       max-height: 260px;
       overflow: auto;
     }
 
-    .summary h3 { margin: 0 0 8px; color: #1b4e63; }
+    .summary h3 { margin: 0 0 8px; color: #9dc9ff; }
     .summary-content {
-      background: #fff;
-      border: 1px solid #dbcdb8;
+      background: rgba(12, 16, 29, 0.72);
+      border: 1px solid rgba(187, 201, 244, 0.24);
       border-radius: 12px;
       padding: 12px;
       min-height: 80px;
@@ -180,9 +319,26 @@
       margin-top: 10px;
       padding: 10px;
       border-radius: 10px;
-      background: #f5ecdc;
+      background: rgba(101, 139, 255, 0.16);
       font-size: 0.86rem;
-      color: #5f4b2e;
+      color: #d6e2ff;
+      border: 1px solid rgba(180, 198, 246, 0.24);
+    }
+
+    .section-title {
+      margin: 10px 0 8px;
+      font-size: 1.01rem;
+      color: #d9e4ff;
+      letter-spacing: 0.2px;
+    }
+
+    .badge {
+      font-size: 0.77rem;
+      color: #dce6ff;
+      border: 1px solid rgba(184, 199, 245, 0.28);
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(70, 96, 173, 0.24);
     }
 
     @keyframes rise {
@@ -201,85 +357,246 @@
     }
 
     @media (max-width: 980px) {
+      body { padding: 12px 12px 20px; }
       .app { grid-template-columns: 1fr; }
       .controls, .row { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 1.55rem; }
+    }
+
+    .footer {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
     }
   </style>
 </head>
 <body>
-  <div class="app">
-    <section class="panel">
-      <div class="panel-head">
-        <div class="title">UC2 Live Call Console</div>
+  <div class="frame">
+    <header class="topbar">
+      <div class="brand-pill">
+        <span class="ms-mark" aria-hidden="true"></span>
+        <span>Microsoft Voice QA</span>
+      </div>
+      <div class="lang-selector">
+        <button class="lang-btn active" id="langBtnEn" data-lang="en">English</button>
+        <button class="lang-btn" id="langBtnZh" data-lang="zh">繁體中文</button>
+      </div>
+      <div class="status-row">
+        <div id="sttMethod" class="stt-method"><strong>STT:</strong> <span id="sttMethodLabel">Web Speech</span></div>
         <div id="connStatus" class="status">Disconnected</div>
-      </div>
-      <div class="panel-body">
-        <div class="row">
-          <input id="callId" placeholder="Call ID" value="demo-001" />
-          <input id="sessionId" placeholder="Session ID" value="session-demo-001" />
-        </div>
-
-        <div class="controls">
-          <button id="connectBtn" class="btn-main">Connect</button>
-          <button id="disconnectBtn" class="btn-ghost" disabled>Disconnect</button>
-          <button id="resetBtn" class="btn-ghost" disabled>Reset Session</button>
-        </div>
-
-        <div class="row">
-          <select id="speakerSelect">
-            <option value="agent">Agent</option>
-            <option value="customer">Customer</option>
-          </select>
-          <input id="langInput" value="zh-TW" placeholder="Speech language (e.g. zh-TW)" />
-        </div>
-
-        <div class="controls">
-          <button id="micStartBtn" class="btn-sub" disabled>Start Mic</button>
-          <button id="micStopBtn" class="btn-ghost" disabled>Stop Mic</button>
-          <button id="endCallBtn" class="btn-warn" disabled>End Call + Summary</button>
-        </div>
-
-        <div class="row">
-          <textarea id="manualText" rows="3" placeholder="Manual transcript input (optional)"></textarea>
-          <button id="sendManualBtn" class="btn-sub" disabled>Send Transcript</button>
-        </div>
-
-        <div class="tips">
-          Browser mic uses Web Speech API. If unsupported, use manual transcript input.
-        </div>
-
-        <h3>Live Transcript</h3>
-        <div id="transcriptBox" class="live-box"></div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div class="title">Assistant Guidance</div>
         <div id="assistStatus" class="status warn">Waiting</div>
       </div>
-      <div class="panel-body">
-        <div id="cards" class="cards"></div>
+    </header>
 
-        <div class="summary">
-          <h3>Post-Call Summary</h3>
-          <div id="summary" class="summary-content">No summary yet.</div>
-        </div>
-
-        <div class="summary">
-          <h3>Runtime Models</h3>
-          <div id="runtimeInfo" class="summary-content">Speech: N/A\nLLM: N/A</div>
-        </div>
-
-        <div class="summary">
-          <h3>Token Metrics</h3>
-          <div id="tokenMetrics" class="summary-content">No metrics yet.</div>
-        </div>
+    <section class="hero">
+      <h1 id="heroTitle">Hi Alex, try asking "What can you do?"</h1>
+      <div class="search-shell">
+        <div class="search-hint" id="hint1">Ask UC2 Copilot: live coaching, compliance reminders, and post-call summary.</div>
+        <div class="search-hint" id="hint2">Use the controls below to connect, start the microphone, and receive guidance cards during calls.</div>
+      </div>
+      <div class="hero-pills">
+        <span class="hero-pill" id="pill1">Company</span>
+        <span class="hero-pill" id="pill2">Explore</span>
       </div>
     </section>
+
+    <div class="app">
+      <section class="panel">
+        <div class="panel-head">
+          <div class="title" id="ctrlTitle">Call Controls</div>
+          <span class="badge">Live</span>
+        </div>
+        <div class="panel-body">
+          <div class="row">
+            <input id="callId" placeholder="Call ID" value="demo-001" data-i18n-placeholder="callIdPlaceholder" />
+            <input id="sessionId" placeholder="Session ID" value="session-demo-001" data-i18n-placeholder="sessionIdPlaceholder" />
+          </div>
+
+          <div class="controls">
+            <button id="connectBtn" class="btn-main" data-i18n="connectBtn">Connect</button>
+            <button id="disconnectBtn" class="btn-ghost" disabled data-i18n="disconnectBtn">Disconnect</button>
+            <button id="resetBtn" class="btn-ghost" disabled data-i18n="resetBtn">Reset Session</button>
+          </div>
+
+          <div class="row">
+            <select id="speakerSelect">
+              <option value="agent">Agent</option>
+              <option value="customer">Customer</option>
+            </select>
+            <input id="langInput" value="zh-TW" placeholder="Speech language (e.g. zh-TW)" data-i18n-placeholder="speechLangPlaceholder" />
+          </div>
+
+          <div class="controls">
+            <button id="micStartBtn" class="btn-sub" disabled data-i18n="micStartBtn">Start Mic</button>
+            <button id="micStopBtn" class="btn-ghost" disabled data-i18n="micStopBtn">Stop Mic</button>
+            <button id="endCallBtn" class="btn-warn" disabled data-i18n="endCallBtn">End Call + Summary</button>
+          </div>
+
+          <div class="row">
+            <textarea id="manualText" rows="3" placeholder="Manual transcript input (optional)" data-i18n-placeholder="manualTextPlaceholder"></textarea>
+            <button id="sendManualBtn" class="btn-sub" disabled data-i18n="sendManualBtn">Send Transcript</button>
+          </div>
+
+          <div class="tips" id="tipText">
+            Browser mic uses Web Speech API. If unsupported, use manual transcript input.
+          </div>
+
+          <h3 class="section-title" id="transcriptTitle">Live Transcript</h3>
+          <div id="transcriptBox" class="live-box"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div class="title" id="guidanceTitle">Copilot Guidance</div>
+          <span class="badge">Guidance</span>
+        </div>
+        <div class="panel-body">
+          <div id="cards" class="cards"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div class="title" id="insightsTitle">Session Insights</div>
+          <span class="badge">Metrics</span>
+        </div>
+        <div class="panel-body">
+          <div class="summary">
+            <h3 id="summaryLabel">Post-Call Summary</h3>
+            <div id="summary" class="summary-content">No summary yet.</div>
+          </div>
+
+          <div class="summary">
+            <h3 id="runtimeLabel">Runtime Models</h3>
+            <div id="runtimeInfo" class="summary-content">Speech: N/A\nLLM: N/A</div>
+          </div>
+
+          <div class="summary">
+            <h3 id="tokenLabel">Token Metrics</h3>
+            <div id="tokenMetrics" class="summary-content">No metrics yet.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="footer" id="footerText">Powered by Microsoft Innovation Hub</div>
   </div>
 
   <script>
+    // i18n translations
+    const i18n = {
+      en: {
+        heroTitle: "Hi Alex, try asking \"What can you do?\"",
+        hint1: "Ask UC2 Copilot: live coaching, compliance reminders, and post-call summary.",
+        hint2: "Use the controls below to connect, start the microphone, and receive guidance cards during calls.",
+        pill1: "Company",
+        pill2: "Explore",
+        ctrlTitle: "Call Controls",
+        connectBtn: "Connect",
+        disconnectBtn: "Disconnect",
+        resetBtn: "Reset Session",
+        micStartBtn: "Start Mic",
+        micStopBtn: "Stop Mic",
+        endCallBtn: "End Call + Summary",
+        sendManualBtn: "Send Transcript",
+        transcriptTitle: "Live Transcript",
+        guidanceTitle: "Copilot Guidance",
+        insightsTitle: "Session Insights",
+        summaryLabel: "Post-Call Summary",
+        runtimeLabel: "Runtime Models",
+        tokenLabel: "Token Metrics",
+        footerText: "Powered by Microsoft Innovation Hub",
+        tipText: "Browser mic uses Web Speech API. If unsupported, use manual transcript input.",
+        callIdPlaceholder: "Call ID",
+        sessionIdPlaceholder: "Session ID",
+        speechLangPlaceholder: "Speech language (e.g. zh-TW)",
+        manualTextPlaceholder: "Manual transcript input (optional)",
+        sttWebSpeech: "Web Speech"
+      },
+      zh: {
+        heroTitle: "嗨 Alex，試試問\"你能做什麼?\"",
+        hint1: "詢問 UC2 副駕駛：即時教練、合規提醒和通話後摘要。",
+        hint2: "使用下方的控制項連接、啟動麥克風並在通話期間接收指導卡片。",
+        pill1: "公司",
+        pill2: "探索",
+        ctrlTitle: "通話控制",
+        connectBtn: "連接",
+        disconnectBtn: "斷開",
+        resetBtn: "重設工作階段",
+        micStartBtn: "啟動麥克風",
+        micStopBtn: "停止麥克風",
+        endCallBtn: "結束通話 + 摘要",
+        sendManualBtn: "傳送記錄",
+        transcriptTitle: "即時記錄",
+        guidanceTitle: "副駕駛指導",
+        insightsTitle: "工作階段洞察",
+        summaryLabel: "通話後摘要",
+        runtimeLabel: "執行時間模型",
+        tokenLabel: "令牌指標",
+        footerText: "技術支援：Microsoft Innovation Hub",
+        tipText: "瀏覽器麥克風使用 Web Speech API。如不支援，請使用手動文字輸入。",
+        callIdPlaceholder: "通話 ID",
+        sessionIdPlaceholder: "工作階段 ID",
+        speechLangPlaceholder: "語音語言 (例如 zh-TW)",
+        manualTextPlaceholder: "手動記錄輸入 (選用)",
+        sttWebSpeech: "網頁語音"
+      }
+    };
+
+    let currentLang = localStorage.getItem('voicecall-lang') || 'en';
+
+    function setLanguage(lang) {
+      if (!i18n[lang]) lang = 'en';
+      currentLang = lang;
+      localStorage.setItem('voicecall-lang', lang);
+
+      // Update button states
+      document.getElementById('langBtnEn').classList.toggle('active', lang === 'en');
+      document.getElementById('langBtnZh').classList.toggle('active', lang === 'zh');
+
+      // Update text content
+      const strings = i18n[lang];
+      document.getElementById('heroTitle').textContent = strings.heroTitle;
+      document.getElementById('hint1').textContent = strings.hint1;
+      document.getElementById('hint2').textContent = strings.hint2;
+      document.getElementById('pill1').textContent = strings.pill1;
+      document.getElementById('pill2').textContent = strings.pill2;
+      document.getElementById('ctrlTitle').textContent = strings.ctrlTitle;
+      document.getElementById('connectBtn').textContent = strings.connectBtn;
+      document.getElementById('disconnectBtn').textContent = strings.disconnectBtn;
+      document.getElementById('resetBtn').textContent = strings.resetBtn;
+      document.getElementById('micStartBtn').textContent = strings.micStartBtn;
+      document.getElementById('micStopBtn').textContent = strings.micStopBtn;
+      document.getElementById('endCallBtn').textContent = strings.endCallBtn;
+      document.getElementById('sendManualBtn').textContent = strings.sendManualBtn;
+      document.getElementById('transcriptTitle').textContent = strings.transcriptTitle;
+      document.getElementById('guidanceTitle').textContent = strings.guidanceTitle;
+      document.getElementById('insightsTitle').textContent = strings.insightsTitle;
+      document.getElementById('summaryLabel').textContent = strings.summaryLabel;
+      document.getElementById('runtimeLabel').textContent = strings.runtimeLabel;
+      document.getElementById('tokenLabel').textContent = strings.tokenLabel;
+      document.getElementById('footerText').textContent = strings.footerText;
+      document.getElementById('tipText').textContent = strings.tipText;
+      document.getElementById('callId').placeholder = strings.callIdPlaceholder;
+      document.getElementById('sessionId').placeholder = strings.sessionIdPlaceholder;
+      document.getElementById('langInput').placeholder = strings.speechLangPlaceholder;
+      document.getElementById('manualText').placeholder = strings.manualTextPlaceholder;
+    }
+
+    function updateSttMethod() {
+      const sttLabel = document.getElementById('sttMethodLabel');
+      const speechLang = document.getElementById('langInput').value.trim() || 'zh-TW';
+      sttLabel.textContent = `Web Speech (${speechLang})`;
+    }
+
+    // Language button event listeners
+    document.getElementById('langBtnEn').addEventListener('click', () => setLanguage('en'));
+    document.getElementById('langBtnZh').addEventListener('click', () => setLanguage('zh'));
+    document.getElementById('langInput').addEventListener('change', updateSttMethod);
+    document.getElementById('langInput').addEventListener('keyup', updateSttMethod);
+
     const connStatus = document.getElementById('connStatus');
     const assistStatus = document.getElementById('assistStatus');
     const callId = document.getElementById('callId');
@@ -370,12 +687,14 @@
       const audioDuration = metrics.audio_duration_seconds ?? 0;
       const speechModel = metrics.speech_model || 'N/A';
       const llmModel = metrics.llm_model || 'N/A';
+      const avgLatency = metrics.avg_llm_latency_ms ?? 0;
       tokenMetrics.textContent = [
         `STT: ${speechModel}`,
         `LLM: ${llmModel}`,
         ``,
         `Audio duration: ${audioDuration.toFixed(2)}s`,
         `LLM requests: ${metrics.llm_requests ?? 0}`,
+        `Average LLM latency: ${avgLatency.toFixed(2)}ms`,
         ``,
         `Session total:`,
         `  Input tokens: ${total.input_tokens ?? 0}`,
@@ -383,6 +702,8 @@
         `  Total tokens: ${total.total_tokens ?? 0}`,
         ``,
         `Last request:`,
+        `  Status: ${last.status || 'N/A'}`,
+        `  Latency: ${(last.latency_ms ?? 0).toFixed(2)}ms`,
         `  Input tokens: ${last.input_tokens ?? 0}`,
         `  Output tokens: ${last.output_tokens ?? 0}`,
         `  Total tokens: ${last.total_tokens ?? 0}`
@@ -605,6 +926,8 @@
     updateTokenMetrics(null);
     renderCards([]);
     toggleControls(false);
+    setLanguage(currentLang);
+    updateSttMethod();
   </script>
 </body>
 </html>

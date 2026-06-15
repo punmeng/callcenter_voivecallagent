@@ -1,0 +1,104 @@
+version: 1
+last_updated: 2026-06-04
+layers:
+  model:
+    - Whisper
+    - MAI-Transcribe
+    - MAI-Voice-1
+    - MAI-Voice-2
+    - GPT-4o Realtime
+  service:
+    - Azure Speech Service
+    - Azure OpenAI Realtime API
+  platform:
+    - Voice Live API
+
+capability_matrix:
+  - name: stt
+    azure_speech_api: true
+    whisper: true
+    mai_transcribe: true
+    gpt4o_realtime: true
+    voice_live_api: true
+    mai_voice_1: false
+    mai_voice_2: false
+  - name: tts
+    azure_speech_api: true
+    whisper: false
+    mai_transcribe: false
+    gpt4o_realtime: true
+    voice_live_api: true
+    mai_voice_1: true
+    mai_voice_2: true
+  - name: speech_to_speech
+    azure_speech_api: false
+    whisper: false
+    mai_transcribe: false
+    gpt4o_realtime: true
+    voice_live_api: true
+    mai_voice_1: false
+    mai_voice_2: false
+  - name: llm_reasoning
+    azure_speech_api: false
+    whisper: false
+    mai_transcribe: false
+    gpt4o_realtime: true
+    voice_live_api: true
+    mai_voice_1: false
+    mai_voice_2: false
+  - name: tool_calling
+    azure_speech_api: false
+    whisper: false
+    mai_transcribe: false
+    gpt4o_realtime: true
+    voice_live_api: true
+    mai_voice_1: false
+    mai_voice_2: false
+  - name: avatar
+    azure_speech_api: true
+    whisper: false
+    mai_transcribe: false
+    gpt4o_realtime: false
+    voice_live_api: true
+    mai_voice_1: false
+    mai_voice_2: false
+  - name: realtime_conversation
+    azure_speech_api: partial
+    whisper: false
+    mai_transcribe: false
+    gpt4o_realtime: true
+    voice_live_api: true
+    mai_voice_1: false
+    mai_voice_2: false
+  - name: multi_turn_memory
+    azure_speech_api: false
+    whisper: false
+    mai_transcribe: false
+    gpt4o_realtime: true
+    voice_live_api: true
+    mai_voice_1: false
+    mai_voice_2: false
+  - name: call_center_integration
+    azure_speech_api: acs_integration
+    whisper: false
+    mai_transcribe: false
+    gpt4o_realtime: acs_with_custom_integration
+    voice_live_api: native_acs_integration
+    mai_voice_1: false
+    mai_voice_2: false
+  - name: websocket
+    azure_speech_api: true
+    whisper: partial
+    mai_transcribe: partial
+    gpt4o_realtime: true
+    voice_live_api: true
+    mai_voice_1: false
+    mai_voice_2: false
+  - name: webrtc
+    azure_speech_api: false
+    whisper: false
+    mai_transcribe: false
+    gpt4o_realtime: true
+    voice_live_api: true
+    mai_voice_1: false
+    mai_voice_2: false

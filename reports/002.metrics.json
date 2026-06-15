@@ -1,0 +1,13 @@
+{
+  "call_id": "002",
+  "audio": "C:\\temp\\002.wav",
+  "processed_at": "2026-06-15T06:20:18.020693+00:00",
+  "stt_status": "OK",
+  "stt_incoming_call_length_seconds": 10.98,
+  "llm_requests": 34,
+  "token_usage": {
+    "input_tokens": 70917,
+    "output_tokens": 2407,
+    "total_tokens": 73324
+  }
+}

@@ -1,0 +1,24 @@
+id: uc1-quality-check
+name: UC1 Blob Audio to Markdown QA Report
+status: active
+business_goal:
+  - offline quality scoring for call recordings
+  - rubric-based compliance/quality decisions
+runtime:
+  mode: batch
+  method_id: stt-benchmark-v1
+entrypoints:
+  run: python -m voiceqa.uc1_main
+  script: start_uc1.ps1
+docs:
+  - docs/README_UC1.md
+  - docs/design_spec_uc1_blob_to_md.md
+  - docs/cost_estimate.md#case-1--quality-check-offline-batch-qa
+capabilities:
+  required:
+    - stt
+    - offline_processing
+    - rubric_scoring
+  optional:
+    - custom_speech
+    - phrase_list

@@ -54,11 +54,20 @@ def _bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y"}
 
 
+def _first_env(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip():
+            return value.strip()
+    return None
+
+
 
 def load_settings() -> Settings:
     load_dotenv(override=False)
 
-    speech_languages_raw = os.getenv("SPEECH_LANGUAGES", "zh-TW,en-US")
+    # Accept both repo-native and Azure-prefixed env names.
+    speech_languages_raw = _first_env("SPEECH_LANGUAGES", "AZURE_SPEECH_LOCALE") or "zh-TW,en-US"
     speech_languages = [token.strip() for token in speech_languages_raw.split(",") if token.strip()]
 
     return Settings(
@@ -77,9 +86,9 @@ def load_settings() -> Settings:
         output_to_blob=_bool_env("OUTPUT_TO_BLOB", True),
         include_transcript=_bool_env("INCLUDE_TRANSCRIPT", True),
         judge_concurrency=int(os.getenv("JUDGE_CONCURRENCY", "4")),
-        speech_key=os.getenv("SPEECH_KEY") or None,
-        speech_region=os.getenv("SPEECH_REGION") or None,
-        speech_endpoint=os.getenv("SPEECH_ENDPOINT") or None,
+        speech_key=_first_env("SPEECH_KEY", "AZURE_SPEECH_KEY"),
+        speech_region=_first_env("SPEECH_REGION", "AZURE_SPEECH_REGION"),
+        speech_endpoint=_first_env("SPEECH_ENDPOINT", "AZURE_SPEECH_ENDPOINT"),
         speech_custom_endpoint_id=os.getenv("SPEECH_CUSTOM_ENDPOINT_ID") or None,
         speech_languages=speech_languages,
         phrase_list_path=Path(os.getenv("PHRASE_LIST_PATH", "assets/phrase_list.txt")),

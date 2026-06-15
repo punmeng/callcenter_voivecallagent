@@ -1,6 +1,154 @@
 Microsoft
+微軟
 Azure
 Teams
 Power BI
 Copilot
 Entra
+技術支援
+客服中心
+通話品質
+語音助理
+即時轉錄
+語音識別
+語音合成
+轉錄品質
+Azure DevOps
+Azure Kubernetes Service
+Azure SQL Database
+Azure 函數
+Azure Kubernetes
+Azure SQL
+應用程式深入解析
+Application Insights
+Azure Functions
+Azure Service Bus
+Azure 服務匯流排
+Azure Storage
+Azure 儲存體
+Azure Cosmos DB
+Azure Virtual Machines
+Azure 虛擬機器
+Azure App Service
+Speech Service
+語音服務
+Speech Recognition
+語音識別
+Speech Synthesis
+語音合成
+Text-to-Speech
+文字轉語音
+Real-time STT
+實時語音轉文字
+Transcription
+轉錄
+Voice Live API
+Foundry Agent
+gpt-5.4
+gpt-realtime
+Quality Check
+品質評分
+Call Center
+客服中心
+Transcription Quality
+轉錄品質
+Token Usage
+令牌使用量
+Audio Duration
+音訊持續時間
+Voice Assist
+語音助理
+Live Assistant
+即時助理
+Phrase List
+詞組列表
+Corrections
+修正
+Rubric
+評分標準
+Check Items
+檢查項目
+Scoring
+評分
+Pass Criteria
+通過標準
+Fail Criteria
+失敗標準
+Language Support
+語言支援
+Multilingual
+多語言
+Chinese
+中文
+English
+英文
+Mandarin
+普通話
+Cantonese
+粵語
+Traditional Chinese
+繁體中文
+Simplified Chinese
+簡體中文
+Speech Endpoint
+語音端點
+API Key
+API 金鑰
+Authentication
+驗證
+Entra ID
+Managed Identity
+受管身分識別
+Speech Key
+語音金鑰
+Speech Region
+語音區域
+Language Detection
+語言偵測
+Accent Adaptation
+口音適應
+Background Noise
+背景雜音
+Audio Processing
+音訊處理
+Latency
+延遲
+Throughput
+輸送量
+Reliability
+可靠性
+Accuracy
+準確度
+WER
+Word Error Rate
+字誤率
+Confidence Score
+信心分數
+Hypothesis
+假設
+Alternative
+替代方案
+Session ID
+工作階段識別碼
+Request ID
+要求識別碼
+Timestamp
+時間戳記
+Batch Processing
+批次處理
+Real-time Processing
+實時處理
+Customer Satisfaction
+客戶滿意度
+ASR
+NLU
+自然語言理解
+Intent Recognition
+意圖辨識
+Entity Extraction
+實體擷取
+Response Quality
+回應品質
+Conversation Flow
+對話流程
+

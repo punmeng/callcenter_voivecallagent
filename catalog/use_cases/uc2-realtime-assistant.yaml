@@ -1,0 +1,25 @@
+id: uc2-realtime-assistant
+name: UC2 Real-time Call Assistant
+status: active
+business_goal:
+  - live assist for agents during calls
+  - next-best-action and compliance hints in real time
+runtime:
+  mode: realtime
+  method_id: stt-benchmark-v1
+entrypoints:
+  run: python -m voiceqa.uc2_main
+  script: start_uc2.ps1
+docs:
+  - docs/README_UC2.md
+  - docs/design_spec_uc2_realtime_assistant.md
+  - docs/cost_estimate.md#case-2--call-assistant-real-time-streaming
+capabilities:
+  required:
+    - stt
+    - realtime_conversation
+    - websocket
+  optional:
+    - voice_live_api
+    - tool_calling
+    - multi_turn_memory

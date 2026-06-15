@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,7 @@ class LiveAssistSession:
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    llm_latency_total_ms: float = 0.0
     audio_duration_seconds: float = 0.0
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -129,6 +131,7 @@ async def _run_assist(
         session.input_tokens = 0
         session.output_tokens = 0
         session.total_tokens = 0
+        session.llm_latency_total_ms = 0.0
         session.audio_duration_seconds = 0.0
         session.updated_at = datetime.now(timezone.utc)
         return {
@@ -141,22 +144,7 @@ async def _run_assist(
                 "speech_model": _resolve_speech_model_label(payload),
                 "llm_model": _resolve_llm_model_label(),
             },
-            "token_metrics": {
-                "llm_requests": 0,
-                "audio_duration_seconds": 0.0,
-                "speech_model": _resolve_speech_model_label(payload),
-                "llm_model": _resolve_llm_model_label(),
-                "session_total": {
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "total_tokens": 0,
-                },
-                "last_request": {
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "total_tokens": 0,
-                },
-            },
+            "token_metrics": _build_token_metrics(payload, session, 0, 0, 0, 0.0, "reset"),
         }
 
     speaker = str(payload.get("speaker") or payload.get("role") or "transcript").strip() or "transcript"
@@ -173,6 +161,12 @@ async def _run_assist(
     max_cards = _resolve_int_env("VOICE_ASSIST_MAX_CARDS", 3)
     transcript_window = session.render_window(window_size)
     summary_mode = event_type in {"end_call", "summary", "post_call"}
+    should_invoke, skip_status = _should_invoke_assistant(payload, text=text, summary_mode=summary_mode)
+
+    if not should_invoke:
+        response = _build_passthrough_response(session, payload, status=skip_status)
+        session.updated_at = datetime.now(timezone.utc)
+        return response
 
     prompt = _build_prompt(
         session=session,
@@ -181,39 +175,101 @@ async def _run_assist(
         max_cards=max_cards,
         summary_mode=summary_mode,
     )
+    started = time.perf_counter()
     result = await agent.run(prompt)
+    llm_latency_ms = (time.perf_counter() - started) * 1000
     parsed = _safe_json_loads(result.text or "")
     last_input_tokens, last_output_tokens, last_total_tokens = _extract_usage_from_response(result)
     session.llm_requests += 1
     session.input_tokens += last_input_tokens
     session.output_tokens += last_output_tokens
     session.total_tokens += last_total_tokens
+    session.llm_latency_total_ms += llm_latency_ms
 
     response = _normalize_response(parsed, session, max_cards=max_cards, summary_mode=summary_mode)
     response["runtime"] = {
         "speech_model": _resolve_speech_model_label(payload),
         "llm_model": _resolve_llm_model_label(),
     }
-    response["token_metrics"] = {
+    response["token_metrics"] = _build_token_metrics(
+        payload,
+        session,
+        last_input_tokens,
+        last_output_tokens,
+        last_total_tokens,
+        llm_latency_ms,
+        "executed",
+    )
+
+    session.last_response = response
+    session.updated_at = datetime.now(timezone.utc)
+    return response
+
+
+def _should_invoke_assistant(payload: dict[str, Any], *, text: str, summary_mode: bool) -> tuple[bool, str]:
+    if summary_mode:
+        return True, "summary"
+
+    if _coerce_bool(payload.get("partial")):
+        return False, "partial_transcript"
+
+    if not text.strip():
+        return False, "waiting_for_transcript"
+
+    return True, "executed"
+
+
+def _build_passthrough_response(
+    session: LiveAssistSession,
+    payload: dict[str, Any],
+    *,
+    status: str,
+) -> dict[str, Any]:
+    previous = session.last_response or {}
+    response = {
+        "session_id": session.session_id,
+        "call_id": session.call_id or session.session_id,
+        "status": status,
+        "cards": previous.get("cards") if isinstance(previous.get("cards"), list) else [],
+        "summary_markdown": previous.get("summary_markdown") if isinstance(previous.get("summary_markdown"), str) else None,
+        "runtime": {
+            "speech_model": _resolve_speech_model_label(payload),
+            "llm_model": _resolve_llm_model_label(),
+        },
+        "token_metrics": _build_token_metrics(payload, session, 0, 0, 0, 0.0, status),
+    }
+    return response
+
+
+def _build_token_metrics(
+    payload: dict[str, Any],
+    session: LiveAssistSession,
+    last_input_tokens: int,
+    last_output_tokens: int,
+    last_total_tokens: int,
+    last_latency_ms: float,
+    last_request_status: str,
+) -> dict[str, Any]:
+    avg_latency_ms = session.llm_latency_total_ms / session.llm_requests if session.llm_requests else 0.0
+    return {
         "llm_requests": session.llm_requests,
         "audio_duration_seconds": round(session.audio_duration_seconds, 2),
         "speech_model": _resolve_speech_model_label(payload),
         "llm_model": _resolve_llm_model_label(),
+        "avg_llm_latency_ms": round(avg_latency_ms, 2),
+        "last_request": {
+            "status": last_request_status,
+            "input_tokens": last_input_tokens,
+            "output_tokens": last_output_tokens,
+            "total_tokens": last_total_tokens,
+            "latency_ms": round(last_latency_ms, 2),
+        },
         "session_total": {
             "input_tokens": session.input_tokens,
             "output_tokens": session.output_tokens,
             "total_tokens": session.total_tokens,
         },
-        "last_request": {
-            "input_tokens": last_input_tokens,
-            "output_tokens": last_output_tokens,
-            "total_tokens": last_total_tokens,
-        },
     }
-
-    session.last_response = response
-    session.updated_at = datetime.now(timezone.utc)
-    return response
 
 
 def _build_prompt(
@@ -396,6 +452,14 @@ def _coerce_float(value: Any) -> float:
         return 0.0
 
 
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return False
+
+
 def _extract_usage(payload: Any) -> tuple[int, int, int] | None:
     if not isinstance(payload, dict):
         return None
@@ -464,7 +528,7 @@ def _extract_usage_from_response(response: Any) -> tuple[int, int, int]:
 
 def _resolve_speech_model_label(payload: dict[str, Any]) -> str:
     # Check if using Azure Speech Service
-    # Priority: payload → VOICE_ASSIST_STT_SERVICE → SPEECH_ENDPOINT (shared with UC1)
+    # Priority: payload → VOICE_ASSIST_STT_SERVICE → SPEECH_ENDPOINT (shared with UC1) → stt_config.toml
     stt_service = (
         str(payload.get("stt_service") or "").strip().lower()
         or str(os.getenv("VOICE_ASSIST_STT_SERVICE") or "").strip().lower()
@@ -473,7 +537,7 @@ def _resolve_speech_model_label(payload: dict[str, Any]) -> str:
     if stt_service and "azure" in stt_service:
         stt_model = str(payload.get("stt_model") or os.getenv("VOICE_ASSIST_STT_MODEL") or "Azure Speech - Text to Speech").strip()
         return f"Azure Speech Service ({stt_model})"
-    
+
     payload_label = str(payload.get("speech_model") or "").strip()
     if payload_label:
         return payload_label
@@ -481,6 +545,14 @@ def _resolve_speech_model_label(payload: dict[str, Any]) -> str:
     speech_language = str(payload.get("speech_language") or "").strip()
     if speech_language:
         return f"Browser Web Speech API ({speech_language})"
+
+    # Fall back to stt_config.toml [uc2].provider so the UI label matches the config.
+    try:
+        from .stt_config import load_stt_config, provider_to_display_label
+        cfg = load_stt_config()
+        return provider_to_display_label(cfg.uc2.provider)
+    except Exception:
+        pass
 
     return "Browser Web Speech API"
 
