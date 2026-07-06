@@ -1,7 +1,7 @@
 # Cost Estimate — VoiceQA Agent
 
-> Last updated: 2026-06-02 · All figures **USD/month**, pay-as-you-go, before tax & infra overhead.
-> Rates verified 2026-06-02 from Azure public pricing pages (see §Sources). **Estimates only** —
+> Last updated: 2026-07-06 · All figures **USD/month**, pay-as-you-go, before tax & infra overhead.
+> Rates re-verified 2026-07-06 from Azure public pricing pages (see §Sources). **Estimates only** —
 > actual cost varies by region, agreement (EA/CSP), commitment tier, and real token usage.
 
 ---
@@ -17,6 +17,9 @@
 | Azure AI Speech | Custom model endpoint hosting | $0.0538 / model / hour |
 | Azure OpenAI | GPT-5.5 | $5.00 in / $30.00 out per 1M tokens (cached in $0.50) |
 | Azure OpenAI | GPT-4.1-mini | $0.40 in / $1.60 out per 1M tokens |
+| Azure OpenAI | `gpt-realtime` (audio) | $32.00 audio-in / $64.00 audio-out per 1M tokens ($4 text-in / $16 text-out) |
+| Azure Speech | Voice Live — native S2S (Pro tier) | $32.00 in / $64.00 out per 1M tokens |
+| Azure Speech | TTS — Neural (prebuilt, non-HD) | $15.00 / 1M characters |
 
 Free tier (F0): 5 STT audio-hours/month shared Standard+Custom. Batch not covered by free tier.
 
@@ -73,10 +76,10 @@ Assumptions: **30 rubric items/call**, one model call per item.
 | Real-time STT | 2,400 hr × $1.00 | $2,400 |
 | Continuous LID add-on | 2,400 hr × $0.30 | $720 |
 | **STT subtotal (PAYG)** | | **$3,120** |
-| **STT via commitment tier** | $1,600 + 400 hr × $0.80 (STT) + $480 + 400 hr × $0.20 (add-on) | **$2,480** |
+| **STT via commitment tier** | $1,600 + 400 hr × $0.80 (STT) + $480 + 400 hr × $0.24 (add-on) | **$2,496** |
 
 > At 2,400 hr/month you exceed the 2,000-hour commitment tier; the tier + overage
-> (**$2,480**) still beats PAYG (**$3,120**) — a ~$640/mo saving. Diarization (+$0.30/hr)
+> (**$2,496**) still beats PAYG (**$3,120**) — a ~$624/mo saving. Diarization (+$0.30/hr)
 > only if the assist logic needs speaker separation.
 
 ### Live-assist LLM
@@ -96,8 +99,8 @@ context than a short interval, so ~2,500 in / 200 out tokens/turn → **28,800 t
 ### Case 2 total
 | Configuration | STT | LLM assist | **Total / month** |
 |---|---|---|---|
-| Commitment STT + **GPT-5.5** | $2,480 | $533 | **≈ $3,013** |
-| Commitment STT + GPT-4.1-mini | $2,480 | $38 | ≈ $2,518 |
+| Commitment STT + **GPT-5.5** | $2,496 | $533 | **≈ $3,029** |
+| Commitment STT + GPT-4.1-mini | $2,496 | $38 | ≈ $2,534 |
 | PAYG STT + GPT-5.5 | $3,120 | $533 | ≈ $3,653 |
 | PAYG STT + GPT-4.1-mini | $3,120 | $38 | ≈ $3,158 |
 
@@ -105,10 +108,13 @@ context than a short interval, so ~2,500 in / 200 out tokens/turn → **28,800 t
 
 ## Case 3 — Automated voice agent (UC3, real-time speech-to-speech)
 
-> **Rates below are structural, not verified dollar figures.** Voice Live / `gpt-realtime`
-> bills audio input/output **tokens** (plus any function-call LLM turns), which move faster
-> than the STT/LLM split used for Cases 1–2. Confirm current `gpt-realtime` audio-token and
-> Voice Live per-minute rates on the Azure pricing page before quoting a number.
+> **Rates now verified (2026-07-06) from the Azure pricing page**, but UC3 bills audio
+> input/output **tokens** (plus any function-call LLM turns), which move faster than the
+> STT/LLM split used for Cases 1–2 — so per-call totals depend heavily on real token
+> volume. Verified unit rates: `gpt-realtime` audio **$32 in / $64 out** per 1M tokens
+> (text $4 in / $16 out); Voice Live native S2S (Pro tier) **$32 in / $64 out**; Azure
+> Speech Neural TTS **$15 / 1M chars**. Re-measure token volume on real calls before
+> quoting a monthly figure.
 
 UC3's cost is dominated by the **realtime model** on the default pipeline. The three
 selectable pipelines are the primary cost/latency/control lever:
@@ -150,8 +156,8 @@ selectable pipelines are the primary cost/latency/control lever:
 - Taxes and any EA/CSP discounts (which would *lower* the above).
 
 ## Sources
-- Azure AI Speech pricing — https://azure.microsoft.com/en-us/pricing/details/speech/ (fetched 2026-06-02)
-- Azure OpenAI pricing — https://azure.microsoft.com/en-us/pricing/details/azure-openai/ (fetched 2026-06-02)
+- Azure AI Speech pricing — https://azure.microsoft.com/en-us/pricing/details/speech/ (fetched 2026-07-06)
+- Azure OpenAI pricing — https://azure.microsoft.com/en-us/pricing/details/azure-openai/ (fetched 2026-07-06)
 
 ## Confirm before finalizing
 1. **Per-turn token size** for Case 2 assist (used 2,500 in / 200 out per call).
