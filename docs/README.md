@@ -26,6 +26,11 @@ Copy [../.env.example](../.env.example) to `.env` and fill in values. Launch the
 
 ![Consolidated dashboard home page](images/01_indexpage.png)
 
+## Visual diagrams
+
+- Voice method selection: [../spec/Voice_Method_Selection.png](../spec/Voice_Method_Selection.png)
+- End-to-end architecture: [../spec/VoiceQA_Architecture.png](../spec/VoiceQA_Architecture.png)
+
 ## The three use cases
 
 | | UC1 — Quality Check | UC2 — Call Assistant | UC3 — Voice Agent |

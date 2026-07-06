@@ -1331,8 +1331,8 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         ttsbenchmark: "TTS Benchmark",
         // Home page
         home_eyebrow: "Voice use case prototype",
-        home_h2: "One prototype, many voice use cases — each powered by a different voice method.",
-        home_lead: "This prototype showcases different call-center use case capabilities — offline quality checking, live agent assistance, and fully automated voice calls — each built on a different Azure voice method (batch STT, real-time transcription, and gpt-realtime speech-to-speech + TTS). Two benchmark matrices let you compare STT and TTS models side by side.",
+        home_h2: "One platform, three voice workflows — choose the method that fits your call-center goal.",
+        home_lead: "Use UC1 for offline quality scoring, UC2 for real-time agent assist, and UC3 for fully automated voice calls. Each workflow maps to a specific Azure voice method (batch STT, real-time transcription, or gpt-realtime speech-to-speech + TTS), and the STT/TTS benchmarks help you compare quality, latency, and cost side by side.",
         home_uc1_label: "UC1",
         home_uc2_label: "UC2",
         home_uc3_label: "UC3",
@@ -1817,12 +1817,12 @@ def _home_page() -> str:
       <div class="hero-grid">
         <div>
           <span class="eyebrow" data-i18n-text="home_eyebrow">Voice use case prototype</span>
-          <h2 data-i18n="home_h2">One prototype, many voice use cases — each powered by a different voice method.</h2>
+          <h2 data-i18n="home_h2">One platform, three voice workflows — choose the method that fits your call-center goal.</h2>
           <p class="lead" data-i18n="home_lead">
-            This prototype showcases different call-center use case capabilities — offline quality checking,
-            live agent assistance, and fully automated voice calls — each built on a different Azure voice method
-            (batch STT, real-time transcription, and gpt-realtime speech-to-speech + TTS). Two benchmark matrices
-            let you compare STT and TTS models side by side.
+            Use UC1 for offline quality scoring, UC2 for real-time agent assist, and UC3 for fully automated voice
+            calls. Each workflow maps to a specific Azure voice method (batch STT, real-time transcription, or
+            gpt-realtime speech-to-speech + TTS), and the STT/TTS benchmarks help you compare quality, latency, and
+            cost side by side.
           </p>
         </div>
         <div class="panel voice-methods">

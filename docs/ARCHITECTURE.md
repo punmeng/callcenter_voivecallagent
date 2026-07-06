@@ -2,6 +2,17 @@
 
 This document covers the **design concept** (how to choose voice tech), the **per-case architecture** (UC1/UC2/UC3), and the **working process**.
 
+## Visual diagrams
+
+Updated design visuals from the spec folder:
+
+- Voice method selection: [../spec/Voice_Method_Selection.png](../spec/Voice_Method_Selection.png)
+- End-to-end architecture: [../spec/VoiceQA_Architecture.png](../spec/VoiceQA_Architecture.png)
+
+![Voice method selection diagram](../spec/Voice_Method_Selection.png)
+
+![VoiceQA architecture diagram](../spec/VoiceQA_Architecture.png)
+
 ---
 
 ## 1. Design concept — scenario-driven selection

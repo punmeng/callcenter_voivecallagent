@@ -21,6 +21,11 @@ az login
 
 ![統合儀表板首頁](images/01_indexpage.png)
 
+## 視覺圖表
+
+- 語音方法選型圖： [../spec/Voice_Method_Selection.png](../spec/Voice_Method_Selection.png)
+- 端到端架構圖： [../spec/VoiceQA_Architecture.png](../spec/VoiceQA_Architecture.png)
+
 ## 三個使用案例
 
 | | UC1 — 品質檢核 | UC2 — 通話輔助 | UC3 — 語音代理 |
