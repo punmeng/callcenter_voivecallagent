@@ -1,8 +1,13 @@
-# VoiceCall Verify
+# VoiceCall Verify: Voice Method Selection and Best Practices
 
-Tooling for **mixed Traditional Chinese (zh-TW) + English** call-center audio, across three use cases. Build version: see [../VERSION](../VERSION).
+A practical playbook for **mixed Traditional Chinese (zh-TW) + English** call-center voice AI: choose the right STT/LLM/TTS method per scenario, benchmark tradeoffs, and run production-style UC pipelines. Build version: see [../VERSION](../VERSION).
 
 > UC1 = offline QA scoring · UC2 = live coaching for a human agent · **UC3 = the AI *is* the agent**.
+
+Method-first focus:
+- Select voice methods by scenario (batch QA, live assist, automated voice agent).
+- Optimize quality/latency/cost with STT + TTS benchmark evidence.
+- Apply pipeline-level controls (Voice Live all-in-one, Voice Live + controlled TTS, classic STT->LLM->TTS).
 
 ## Quick start
 

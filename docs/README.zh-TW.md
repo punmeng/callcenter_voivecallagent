@@ -1,8 +1,13 @@
-# VoiceCall Verify（繁體中文）
+# VoiceCall Verify：語音方法選型與最佳實務（繁體中文）
 
-處理中英夾雜（zh-TW + English）客服通話的三個使用案例。版本請見 [../VERSION](../VERSION)。
+這是一份面向中英夾雜（zh-TW + English）客服語音 AI 的實戰手冊：協助你依情境選擇 STT/LLM/TTS 方法、用基準測試比較取捨，並落地到三種 UC 管線。版本請見 [../VERSION](../VERSION)。
 
 > UC1 = 離線品質評分 · UC2 = 真人客服即時輔助 · **UC3 = AI 直接擔任客服**。
+
+方法優先重點：
+- 依場景選方法（批次 QA、即時輔助、全自動語音代理）。
+- 以 STT/TTS 基準結果優化品質、延遲與成本。
+- 透過管線層控制策略（Voice Live 一體化、Voice Live + 可控 TTS、classic STT->LLM->TTS）。
 
 ## 快速開始
 
