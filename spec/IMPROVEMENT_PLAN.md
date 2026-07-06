@@ -90,3 +90,9 @@ Suggested filename in repo: `docs/P17_IMPROVEMENT_PLAN.md`. New benchmark doc su
 | **Wave 3 (P2)** | UC1 cost/dashboard · UC2 transport resilience · UC3 KB/templated · STT bucket enforcement |
 
 **North-star metrics:** UC1 judge–human agreement · UC2 sub-second hot-path latency · UC3 NG-1/2/3 gate pass + task success · STT digit/code-switch accuracy · TTS MOS ≥ 4.0 with NG gates green.
+
+---
+
+## Reference
+
+STT/TTS tuning items above (phrase list, N-best analysis, correction logic, Custom Speech decision, custom lexicon) follow Microsoft's ISE Developer Blog, *Tuning and Optimization of STT, TTS, and Custom Keyword Recognition in Azure Speech Services* (2025-10-31): https://devblogs.microsoft.com/ise/azure-speech-to-text-optimization/. Notable: the built-in word-level **Corrections** feature is **en-US only** — for zh-TW the repo's `assets/corrections.json` data plus `src/voiceqa/corrections.py` post-processor is the right approach; Custom Speech (zh-TW supported) accepts audio+labeled transcripts, plain/structured text, and pronunciation data; custom lexicons are PLS 1.0 XML (≤100 KB, ~15-min cache).

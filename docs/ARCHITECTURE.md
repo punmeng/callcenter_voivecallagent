@@ -68,7 +68,7 @@ One-liner mapping: Azure Speech = voice components · GPT-4o Realtime = real-tim
 1. **Continuous LID** for `zh-TW` + `en-US` code-switching (always on).
 2. **Phrase List** — boost brand names, product codes, jargon.
 3. **Detailed output + N-best capture** — feeds the corrector, surfaces alternates.
-4. **`corrections.json`** — deterministic post-STT string replacement.
+4. **`assets/corrections.json` + `src/voiceqa/corrections.py`** — deterministic post-STT string replacement.
 5. **Custom Speech model** — last resort; requires labeled audio.
 
 ### QA judging strategy
