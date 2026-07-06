@@ -1,0 +1,12 @@
+{"sample_id":"tts_01","text":"謝謝耐心等候，敝姓陳，很高興為你服務。","language":"zh-TW","scenario":"greeting"}
+{"sample_id":"tts_02","text":"您好，這裡是客戶服務中心，請問有什麼可以為您效勞的嗎？","language":"zh-TW","scenario":"greeting"}
+{"sample_id":"tts_03","text":"Thank you for calling. Your reference number is 4-6-6-9. How may I help you today?","language":"en-US","scenario":"greeting"}
+{"sample_id":"tts_04","text":"為了保護您的帳戶安全，請提供您的會員編號與登記的手機末四碼。","language":"zh-TW","scenario":"verification"}
+{"sample_id":"tts_05","text":"您本期的帳單金額為新台幣一千兩百八十元，繳款期限為三月十五日。","language":"zh-TW","scenario":"billing"}
+{"sample_id":"tts_06","text":"不好意思，讓您久等了，我需要幫您查詢一下，請稍候大約三十秒。","language":"zh-TW","scenario":"hold"}
+{"sample_id":"tts_07","text":"您的訂單已於今天上午出貨，預計三個工作天內送達，物流單號是 SF一二三四五六七八。","language":"zh-TW","scenario":"order-status"}
+{"sample_id":"tts_08","text":"感謝您的來電，祝您有個愉快的一天，再見。","language":"zh-TW","scenario":"closing"}
+{"sample_id":"tts_09","text":"I've updated your billing address. You'll receive a confirmation email within five minutes.","language":"en-US","scenario":"confirmation"}
+{"sample_id":"tts_10","text":"To confirm, you'd like to upgrade to the premium plan at $29.99 per month starting next cycle, correct?","language":"en-US","scenario":"confirmation"}
+{"sample_id":"tts_11","text":"I'm sorry for the inconvenience. Let me escalate this to our billing specialist right away.","language":"en-US","scenario":"escalation"}
+{"sample_id":"tts_12","text":"好的，我幫您把方案升級為尊榮會員，每月費用是新台幣九百九十九元，from next month 開始生效。","language":"zh-TW","scenario":"mixed-language"}

@@ -1,0 +1,13 @@
+{
+  "call_id": "uc3_call_20260703-150840",
+  "audio": "C:\\temp\\uc3_call_20260703-150840.wav",
+  "processed_at": "2026-07-03T07:26:25.275405+00:00",
+  "stt_status": "OK",
+  "stt_incoming_call_length_seconds": 177.09,
+  "llm_requests": 34,
+  "token_usage": {
+    "input_tokens": 83021,
+    "output_tokens": 4134,
+    "total_tokens": 87155
+  }
+}

@@ -42,17 +42,30 @@ def build_foundry_agent(
     model: str | None = None,
     agent_name: str | None = None,
     agent_version: str | None = None,
+    allow_preview: bool = False,
+    use_portal_instructions: bool = False,
 ) -> Agent:
     if agent_name:
-        return FoundryAgent(
-            project_endpoint=project_endpoint,
-            agent_name=agent_name,
-            agent_version=agent_version,
-            credential=DefaultAzureCredential(),
-            name=name,
-            instructions=instructions,
-            default_options={"store": False},
-        )
+        # allow_preview=True routes through get_openai_client(agent_name=...), which
+        # runs the portal agent WITH its server-side tools (e.g. File search /
+        # knowledge). The non-preview path strips tools, so attached knowledge is
+        # ignored — set allow_preview=True for agents that rely on knowledge.
+        #
+        # use_portal_instructions=True omits our local instructions so the portal
+        # agent's OWN published instructions drive (e.g. edits made in the portal
+        # like "return NTD 1799 by default"). Otherwise our instructions override them.
+        agent_kwargs: dict[str, object] = {
+            "project_endpoint": project_endpoint,
+            "agent_name": agent_name,
+            "agent_version": agent_version,
+            "credential": DefaultAzureCredential(),
+            "name": name,
+            "default_options": {"store": False},
+            "allow_preview": allow_preview,
+        }
+        if not use_portal_instructions:
+            agent_kwargs["instructions"] = instructions
+        return FoundryAgent(**agent_kwargs)
 
     if not model:
         raise ValueError("A Foundry model deployment name is required when no portal agent name is configured.")

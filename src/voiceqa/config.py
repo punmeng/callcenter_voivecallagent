@@ -100,8 +100,10 @@ def load_settings() -> Settings:
         aoai_use_entra_id=_bool_env("AOAI_USE_ENTRA_ID", False),
         aoai_scope=os.getenv("AOAI_SCOPE", "https://cognitiveservices.azure.com/.default"),
         foundry_project_endpoint=os.getenv("FOUNDRY_PROJECT_ENDPOINT") or os.getenv("UC1_FOUNDRY_PROJECT_ENDPOINT") or None,
-        foundry_agent_name=os.getenv("FOUNDRY_AGENT_NAME") or os.getenv("UC1_FOUNDRY_AGENT_NAME") or None,
-        foundry_agent_version=os.getenv("FOUNDRY_AGENT_VERSION") or os.getenv("UC1_FOUNDRY_AGENT_VERSION") or None,
+        # Prefer UC1-specific names so a shared FOUNDRY_AGENT_NAME set by another
+        # use case's launch script (e.g. start_uc3.ps1) can't hijack UC1's judge agent.
+        foundry_agent_name=os.getenv("UC1_FOUNDRY_AGENT_NAME") or os.getenv("FOUNDRY_AGENT_NAME") or None,
+        foundry_agent_version=os.getenv("UC1_FOUNDRY_AGENT_VERSION") or os.getenv("FOUNDRY_AGENT_VERSION") or None,
         foundry_model_deployment_name=os.getenv("FOUNDRY_MODEL_DEPLOYMENT_NAME")
         or os.getenv("UC1_FOUNDRY_MODEL_DEPLOYMENT_NAME")
         or None,

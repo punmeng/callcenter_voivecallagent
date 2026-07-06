@@ -1,0 +1,85 @@
+id: tts-benchmark-v1
+name: TTS Benchmark Method v1
+status: active
+owner: voiceqa
+entrypoints:
+  cli: python scripts/eval_tts_quality.py
+  matrix_script: start_tts_benchmark_matrix.ps1
+default_providers:
+  - voice-live-api
+  - azure-speech-tts
+optional_providers:
+  - voice-live-api
+  - gpt-realtime
+  - azure-speech-tts
+  - mai-voice
+provider_notes:
+  voice-live-api: Azure AI Voice Live realtime synthesis (default gpt-realtime model, Azure neural voice, verbatim pre-generated audio).
+  gpt-realtime: GPT Realtime speech synthesis via Voice Live using a native OpenAI voice (model-driven instructions strategy).
+  azure-speech-tts: Azure Speech neural TTS baseline via the Speech SDK (deterministic verbatim synthesis).
+  mai-voice: MAI-Voice-2 multilingual neural TTS via the Speech SDK (prebuilt voice e.g. en-US-Harper:MAI-Voice-2; set MAI_VOICE_NAME).
+outputs:
+  - reports/tts_benchmarks/<run-id>/summary.md
+  - reports/tts_benchmarks/<run-id>/<provider>.results.jsonl
+  - reports/tts_benchmarks/<run-id>/<provider>/<sample-id>.wav
+metrics:
+  - char_count
+  - time_to_first_audio_ms
+  - total_synthesis_ms
+  - audio_duration_ms
+  - real_time_factor
+selection_rules:
+  - prioritize lower time-to-first-audio for realtime/interactive scenarios
+  - use real-time factor (synthesis time / audio duration) as a throughput tie-breaker
+  - require a healthy success rate before considering latency
+  - audio naturalness / pronunciation are NOT auto-scored; keep WAV artifacts for human/MOS review
+
+model_selection_principles:
+  objective:
+    choose the most responsive and stable TTS voice for call-center playback and
+    realtime assistant prompts, while confirming naturalness by listening.
+
+  hard_gates:
+    - provider must synthesize at least 95% of samples successfully
+    - time-to-first-audio must meet scenario SLA (realtime <= 500 ms preferred, batch flexible)
+    - real-time factor should be < 1.0 for realtime playback scenarios
+    - pronunciation of critical business terms must be acceptable on manual review
+
+  primary_metrics:
+    - time_to_first_audio_ms (lower is better)
+    - real_time_factor (lower is better)
+
+  secondary_metrics:
+    - total_synthesis_ms
+    - audio_duration_ms
+    - success_rate
+
+  tie_breakers:
+    - choose higher success_rate first
+    - then lower time_to_first_audio_ms
+    - then lower real_time_factor
+
+  scenario_guidance:
+    realtime_assistant:
+      prioritize: [time_to_first_audio_ms, real_time_factor, naturalness]
+      preferred_candidates: [voice-live-api]
+    batch_playback:
+      prioritize: [naturalness, pronunciation, success_rate]
+      preferred_candidates: [azure-speech-tts]
+
+overall_review_checklist:
+  - confirm dataset covers real prompts (short/long, mixed language, numbers, brand/product names)
+  - run benchmark with the same dataset across all candidate voices
+  - inspect worst-case latency samples, not only averages
+  - listen to a sample of generated WAV files and rate naturalness/pronunciation (MOS)
+  - verify locale/voice matches the target language (e.g. zh-TW voices for Traditional Chinese)
+  - decide winner + fallback voice, and record rollback trigger thresholds
+
+decision_output_template:
+  fields:
+    - recommended_voice
+    - fallback_voice
+    - confidence_level
+    - key_risks
+    - mitigation_plan
+    - next_recheck_date

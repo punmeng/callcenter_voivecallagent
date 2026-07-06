@@ -11,9 +11,8 @@ entrypoints:
   run: python -m voiceqa.uc2_main
   script: start_uc2.ps1
 docs:
-  - docs/README_UC2.md
-  - docs/design_spec_uc2_realtime_assistant.md
-  - docs/cost_estimate.md#case-2--call-assistant-real-time-streaming
+  - docs/UC2.md
+  - docs/COST.md#case-2--call-assistant-real-time-streaming
 capabilities:
   required:
     - stt

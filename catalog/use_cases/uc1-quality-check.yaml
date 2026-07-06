@@ -11,9 +11,8 @@ entrypoints:
   run: python -m voiceqa.uc1_main
   script: start_uc1.ps1
 docs:
-  - docs/README_UC1.md
-  - docs/design_spec_uc1_blob_to_md.md
-  - docs/cost_estimate.md#case-1--quality-check-offline-batch-qa
+  - docs/UC1.md
+  - docs/COST.md#case-1--quality-check-offline-batch-qa
 capabilities:
   required:
     - stt

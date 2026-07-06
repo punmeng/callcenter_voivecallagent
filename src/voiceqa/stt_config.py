@@ -192,6 +192,8 @@ _PROVIDER_LABELS: dict[str, str] = {
     "azure-speech-stt-custom": "Azure Speech Service (Custom Speech)",
     "mai-transcribe-1.5": "MAI-Transcribe 1.5",
     "voice-live-api": "Voice Live API",
+    "voice-live-api-mai-transcribe-1": "Voice Live API (MAI-Transcribe)",
+    "voice-live-api-gpt-4o-transcribe": "Voice Live API (GPT-4o Transcribe)",
     "gpt-audio-transcribe": "Azure OpenAI Audio Transcription",
     "browser-web-speech": "Browser Web Speech API",
 }

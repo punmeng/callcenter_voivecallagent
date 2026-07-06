@@ -34,10 +34,13 @@ phrase_list = true
 # it names the client-side service that produced the transcript.
 #
 # Common values:
-#   azure-speech-stt    → Azure Speech SDK used in the browser (recommended)
+#   azure-speech-stt    → Azure Speech SDK real-time transcription + speaker diarization (recommended)
 #   browser-web-speech  → Native browser Web Speech API
 #   voice-live-api      → Voice Live API via browser SDK
-provider = "voice-live-api"
+#   voice-live-api-mai-transcribe-1  → Voice Live API using the MAI-Transcribe model (no diarization)
+# UC2's live console transcribes with Azure Speech ConversationTranscriber, which
+# provides agent/customer diarization — so azure-speech-stt matches the real engine.
+provider = "azure-speech-stt"
 
 # ─── Benchmark: STT accuracy & latency comparison ────────────────────────────
 [benchmark]

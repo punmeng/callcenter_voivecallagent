@@ -1,0 +1,27 @@
+id: uc3-voice-live-call
+name: UC3 Voice Live Call (gpt-realtime + TTS)
+status: active
+business_goal:
+  - fully automated AI voice agent that talks directly to the caller
+  - speech-to-speech conversation (STT + LLM + TTS) with low latency
+  - route specific inquiries (billing, account, payment, order-status) to an expert agent
+runtime:
+  mode: realtime
+  method_id: tts-benchmark-v1
+entrypoints:
+  run: python -m voiceqa.uc3_main
+  script: start_uc3.ps1
+docs:
+  - docs/UC3.md
+capabilities:
+  required:
+    - stt
+    - tts
+    - speech_to_speech
+    - realtime_conversation
+    - llm_reasoning
+    - websocket
+  optional:
+    - tool_calling
+    - multi_turn_memory
+    - webrtc

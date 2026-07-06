@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, "src")
 
 from voiceqa.stt_benchmark import (
     append_cost_report,
@@ -37,6 +40,8 @@ def parse_args() -> argparse.Namespace:
             "mai-transcribe-1.5",
             "gpt-audio-transcribe",
             "voice-live-api",
+            "voice-live-api-gpt-4o-transcribe",
+            "voice-live-api-mai-transcribe-1",
         ],
         help="Provider(s) to benchmark. Ranking uses raw transcript accuracy, latency, and estimated cost; corrected transcript metrics are reported separately.",
     )
@@ -75,7 +80,7 @@ def main() -> None:
                 args.parallel = True
             print(f"Using providers from config/stt_config.toml: {', '.join(provider_names)}")
         except Exception as exc:
-            print(f"Warning: could not load stt_config.toml ({exc}); using default provider.", file=__import__('sys').stderr)
+            print(f"Warning: could not load stt_config.toml ({exc}); using default provider.", file=sys.stderr)
             provider_names = ["azure-speech-stt"]
     else:
         provider_names = args.providers

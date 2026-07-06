@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import os
 import re
 import traceback
 from dataclasses import dataclass
@@ -29,11 +30,47 @@ from .uc1_blob_reader import BlobReader
 from .uc1_main import Uc1RunSummary, run_uc1
 from .stt_config import load_stt_config, provider_to_display_label
 from .stt_benchmark import BenchmarkSample, append_cost_report, build_provider, parse_dataset, run_benchmark
+from .tts_benchmark import build_tts_provider, parse_tts_dataset, run_tts_benchmark
 from .uc2_live_assistant import create_app as create_uc2_live_app
+from .uc3_voice_agent import create_app as create_uc3_live_app
 
 
 _DASHBOARD_TITLE = "VoiceCall Verify"
 _BENCHMARK_ROOT = Path("reports/benchmarks")
+_TTS_BENCHMARK_ROOT = Path("reports/tts_benchmarks")
+_TTS_SUPPORTED_PROVIDERS = [
+    "voice-live-api",
+    "gpt-realtime",
+    "mai-voice",
+    "azure-speech-tts",
+]
+_TTS_DEFAULT_PROVIDERS = ["voice-live-api", "azure-speech-tts"]
+_TTS_DEFAULT_DATASET = "data/tts_benchmark.template.jsonl"
+
+# Maps action button labels to i18n keys so buttons translate consistently.
+_ACTION_LABEL_KEYS = {
+    "Open live console": "btn_open_live",
+    "Open voice call": "btn_open_voice",
+    "Run quality check": "btn_run_quality",
+    "Open STT benchmark": "btn_open_stt",
+    "Open TTS benchmark": "btn_open_tts",
+}
+
+# Friendly home names + aligned "what it does" descriptions per use case.
+_HOME_NAME_EN = {
+    "uc1": "Voice Call Quality",
+    "uc2": "Real-time Call Assistant",
+    "uc3": "Voice Live Call",
+    "benchmark": "STT Benchmark",
+    "tts-benchmark": "TTS Benchmark",
+}
+_HOME_DESC_EN = {
+    "uc1": "Offline batch quality check — transcribe recorded calls and score them against a rubric into a Markdown QA report.",
+    "uc2": "Live agent copilot — surfaces next-best-action, compliance, and answer cards in real time during a call.",
+    "uc3": "Fully automated AI voice agent that talks to the caller (speech-to-speech) and escalates specific inquiries to an expert agent.",
+    "benchmark": "Compare STT models for accuracy, latency, and cost across multiple providers.",
+    "tts-benchmark": "Compare TTS voices for latency and real-time factor, keeping the generated audio for listening review.",
+}
 _UC1_SUPPORTED_PROVIDERS = [
     "azure-speech-stt",
     "azure-speech-stt-custom",
@@ -116,7 +153,7 @@ _USE_CASE_CARDS = [
             "Scores the transcript against rubric rules and writes Markdown + JSON artifacts.",
         ],
         actions=[
-            ("Open benchmark page", "/benchmark"),
+            ("Run quality check", "/uc1"),
         ],
     ),
     UseCaseCard(
@@ -134,13 +171,29 @@ _USE_CASE_CARDS = [
         ],
         actions=[
             ("Open live console", "/uc2/live"),
-          ("Open benchmark page", "/benchmark"),
+        ],
+    ),
+    UseCaseCard(
+        id="uc3",
+        name="UC3 Voice Live Call (gpt-realtime + TTS)",
+        short_name="UC3",
+        summary="Fully automated AI voice agent that talks to the caller.",
+        value="A speech-to-speech voice bot on Azure AI Voice Live (gpt-realtime): it listens, understands, and replies in voice, and hands specific inquiries (billing, account, payment, order-status) to an expert agent before speaking the answer back.",
+        route="/uc3",
+        voice_model="Azure AI Voice Live (gpt-realtime) + neural/OpenAI TTS voice",
+        details=[
+            "Streams microphone audio to Voice Live and plays synthesized replies in the browser.",
+            "Native STT + LLM + TTS in one realtime session with server-side turn detection.",
+            "Escalates specific questions to a Foundry expert agent via function calling, then reads the answer aloud.",
+        ],
+        actions=[
+            ("Open voice call", "/uc3/live"),
         ],
     ),
     UseCaseCard(
         id="benchmark",
         name="STT Benchmark Matrix",
-        short_name="Benchmark",
+        short_name="STT Benchmark",
         summary="Compare STT accuracy, latency, and cost across multiple providers.",
         value="Lets you compare Azure Speech, MAI-Transcribe, GPT audio transcription, and Voice Live variants from a single benchmark page.",
         route="/benchmark",
@@ -151,8 +204,24 @@ _USE_CASE_CARDS = [
             "Uses config/stt_config.toml for the default provider list.",
         ],
         actions=[
-            ("Open benchmark details", "/benchmark"),
-            ("Run matrix script", "/benchmark/script"),
+            ("Open STT benchmark", "/benchmark"),
+        ],
+    ),
+    UseCaseCard(
+        id="tts-benchmark",
+        name="TTS Benchmark Matrix",
+        short_name="TTS Benchmark",
+        summary="Compare text-to-speech voices on latency and real-time factor.",
+        value="Benchmarks Voice Live (gpt-realtime), MAI-Voice-2, and Azure neural voices, keeping the generated audio for listening review.",
+        route="/tts-benchmark",
+        voice_model="voice-live-api (gpt-realtime), gpt-realtime, mai-voice (MAI-Voice-2), azure-speech-tts",
+        details=[
+            "Reads TTS benchmark runs from reports/tts_benchmarks.",
+            "Shows time-to-first-audio, total synthesis time, and real-time factor per provider.",
+            "Plays back generated audio artifacts directly in the browser.",
+        ],
+        actions=[
+            ("Open TTS benchmark", "/tts-benchmark"),
         ],
     ),
 ]
@@ -270,10 +339,11 @@ def _benchmark_overview() -> dict[str, Any]:
 
 
 def _default_uc1_source_path(settings: Settings) -> str:
-    if settings.local_audio_path:
-        return str(settings.local_audio_path)
+    # Prefer the folder so the UC1 page lists every *.wav for browse/select.
     if settings.local_audio_dir:
         return str(settings.local_audio_dir)
+    if settings.local_audio_path:
+        return str(Path(settings.local_audio_path).parent)
     return ""
 
 
@@ -867,21 +937,22 @@ def _uc1_page(
 
     audio_rows = "".join(
       f"<tr>"
+      f"<td><input type='radio' name='run_target' value=\"{escape(item.path, quote=True)}\" form='uc1form'{' checked' if idx == 0 else ''} /></td>"
       f"<td>{escape(item.name)}</td>"
       f"<td>{escape(item.path)}</td>"
       f"<td>{escape(_format_seconds(item.duration_seconds))}</td>"
       f"<td>{escape(_human_size(item.size_bytes))}</td>"
       f"<td><audio class='preview-player' controls preload='none' src='/api/audio/preview?path={escape(quote(item.path, safe=''), quote=True)}'></audio></td>"
       f"</tr>"
-      for item in audio_items
-    ) or "<tr><td colspan='5' class='muted'>No audio files found.</td></tr>"
+      for idx, item in enumerate(audio_items)
+    ) or "<tr><td colspan='6' class='muted'>No audio files found.</td></tr>"
 
     message_html = ""
     if message:
         message_html = f"""
         <section class="section">
           <div class="panel">
-            <h4>Run status</h4>
+            <h4 data-i18n-text="bench_status">Run status</h4>
             <div class="summary-box">{escape(message)}</div>
           </div>
         </section>
@@ -893,39 +964,40 @@ def _uc1_page(
     <section class="hero">
       <div class="hero-grid">
         <div>
-          <span class="eyebrow">UC1 quality check</span>
-          <h2>Run quality check and review the result directly on this page.</h2>
-          <p class="lead">
+          <span class="eyebrow" data-i18n-text="uc1p_eyebrow">UC1 quality check</span>
+          <h2 data-i18n-text="uc1p_h2">Run quality check and review the result directly on this page.</h2>
+          <p class="lead" data-i18n="uc1p_lead">
             You can change the local source path and STT method for this run. The report summary and per-call results
             are shown below immediately after the job completes.
           </p>
           <div class="chip-row">
-            <span class="chip"><strong>Source mode</strong> {escape(source_mode)}</span>
-            <span class="chip"><strong>Source path</strong> {escape(source_label)}</span>
-            <span class="chip"><strong>STT</strong> {escape(provider_to_display_label(selected_provider))}</span>
+            <span class="chip"><strong data-i18n-text="uc1p_source_mode">Source mode</strong> {escape(source_mode)}</span>
+            <span class="chip"><strong data-i18n-text="uc1p_source_path">Source path</strong> {escape(source_label)}</span>
+            <span class="chip"><strong data-i18n-text="uc1p_stt">STT</strong> {escape(provider_to_display_label(selected_provider))}</span>
           </div>
-          <form method="post" action="/uc1/run" style="margin-top:14px;">
+          <form id="uc1form" method="post" action="/uc1/run" style="margin-top:14px;">
             <div class="split">
               <div>
-                <label for="source_path">Source path (file or folder)</label>
-                <input id="source_path" name="source_path" type="text" value="{escape(source_path_value)}" placeholder="e.g. data/benchmark_audio or C:/calls/demo.wav" style="width:100%; margin-top:6px;" />
+                <label for="source_path" data-i18n-text="uc1p_label_source">Source path (file or folder)</label>
+                <input id="source_path" name="source_path" type="text" value="{escape(source_path_value)}" placeholder="e.g. C:/temp or C:/calls/demo.wav" style="width:100%; margin-top:6px;" />
               </div>
               <div>
-                <label for="stt_provider">STT method</label>
-                <select id="stt_provider" name="stt_provider" style="width:100%; margin-top:6px;">{provider_options}</select>
+                <label for="stt_provider" data-i18n-text="uc1p_label_stt">STT method</label>
+                <select id="stt_provider" name="stt_provider" form="uc1form" style="width:100%; margin-top:6px;">{provider_options}</select>
               </div>
             </div>
             <div class="cta-row">
-              <button class="btn primary" type="submit">Run quality check</button>
+              <button class="btn primary" type="submit" data-i18n-text="uc1p_btn_run">Run quality check</button>
+              <button class="btn" type="submit" formaction="/uc1/list" data-i18n-text="uc1p_btn_list">List files</button>
             </div>
           </form>
         </div>
         <div class="panel">
-          <h4>What this page does</h4>
+          <h4 data-i18n-text="uc1p_what">What this page does</h4>
           <ul class="detail-list">
-            <li>Shows each local audio file that UC1 will process from the selected source path.</li>
-            <li>Runs speech recognition, rubric scoring, and Markdown report generation.</li>
-            <li>Shows run status, pass/fail counts, token usage, and report paths on-page.</li>
+            <li data-i18n-text="uc1p_w1">Shows each local audio file that UC1 will process from the selected source path.</li>
+            <li data-i18n-text="uc1p_w2">Runs speech recognition, rubric scoring, and Markdown report generation.</li>
+            <li data-i18n-text="uc1p_w3">Shows run status, pass/fail counts, token usage, and report paths on-page.</li>
           </ul>
         </div>
       </div>
@@ -934,14 +1006,14 @@ def _uc1_page(
     <section class="section">
       <div class="section-head">
         <div>
-          <h3>Source audio preview</h3>
-          <p>These files will be included in the next quality check run.</p>
+          <h3 data-i18n-text="uc1p_preview">Source audio preview</h3>
+          <p data-i18n="uc1p_preview_desc">Pick a file to check, listen with the player, then Run quality check.</p>
         </div>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>File</th><th>Path</th><th>Duration</th><th>Size</th><th>Play</th></tr>
+            <tr><th data-i18n-text="uc1p_select">Select</th><th data-i18n-text="bench_table_file">File</th><th data-i18n-text="bench_table_path">Path</th><th data-i18n-text="bench_table_duration">Duration</th><th data-i18n-text="bench_table_size">Size</th><th data-i18n-text="bench_table_play">Play</th></tr>
           </thead>
           <tbody>{audio_rows}</tbody>
         </table>
@@ -1021,7 +1093,9 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         ("/", "Home", "home"),
         ("/uc1", "UC1", "uc1"),
         ("/uc2", "UC2", "uc2"),
-        ("/benchmark", "Benchmark", "benchmark"),
+        ("/uc3", "UC3", "uc3"),
+        ("/benchmark", "STT Benchmark", "benchmark"),
+        ("/tts-benchmark", "TTS Benchmark", "tts-benchmark"),
     ]
     nav_html = "".join(
         f'<a class="nav-link{" active" if key == active else ""}" href="{href}" data-key="{key}">{label}</a>'
@@ -1054,6 +1128,7 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
       --shadow: 0 22px 52px rgba(8, 10, 20, 0.4);
     }}
     * {{ box-sizing: border-box; }}
+    html {{ font-size: 17.5px; }}
     html, body {{ height: 100%; }}
     body {{
       margin: 0;
@@ -1162,8 +1237,8 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
       background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(122, 160, 255, 0.24);
       font-size: 0.82rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
     }}
-    h2 {{ margin: 14px 0 10px; font-size: clamp(1.7rem, 3vw, 2.35rem); line-height: 1.08; text-shadow: 0 12px 34px rgba(7, 10, 18, 0.45); }}
-    .lead {{ color: var(--muted); font-size: 1.04rem; line-height: 1.6; max-width: 72ch; }}
+    h2 {{ margin: 14px 0 12px; font-size: clamp(2rem, 3.2vw, 2.75rem); line-height: 1.1; text-shadow: 0 12px 34px rgba(7, 10, 18, 0.45); }}
+    .lead {{ color: var(--muted); font-size: 1.18rem; line-height: 1.65; max-width: 70ch; }}
     .stats {{ display: grid; gap: 12px; }}
     .stat {{
       padding: 14px 16px; border-radius: 18px; background: rgba(12, 16, 28, 0.56);
@@ -1173,27 +1248,27 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
     .stat .v {{ margin-top: 8px; font-size: 1.02rem; line-height: 1.45; }}
     .section {{ margin-top: 18px; }}
     .section-head {{ display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }}
-    .section-head h3 {{ margin: 0; font-size: 1.25rem; }}
-    .section-head p {{ margin: 0; color: var(--muted); }}
+    .section-head h3 {{ margin: 0; font-size: 1.5rem; }}
+    .section-head p {{ margin: 0; color: var(--muted); font-size: 1.02rem; }}
     .grid {{ display: grid; gap: 14px; }}
     .grid.cards {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
     .card {{
       border-radius: 18px; padding: 18px; background: var(--surface);
       border: 1px solid var(--border); box-shadow: var(--shadow); backdrop-filter: blur(10px);
     }}
-    .card h4 {{ margin: 0 0 8px; font-size: 1.1rem; }}
-    .card p {{ margin: 0; color: var(--muted); line-height: 1.55; }}
+    .card h4 {{ margin: 0 0 8px; font-size: 1.32rem; }}
+    .card p {{ margin: 0; color: var(--muted); line-height: 1.6; font-size: 1.05rem; }}
     .chip-row {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }}
     .chip {{
-      display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border-radius: 999px;
-      background: rgba(14, 18, 30, 0.64); border: 1px solid var(--border); color: var(--text); font-size: 0.88rem;
+      display: inline-flex; align-items: center; gap: 8px; padding: 9px 13px; border-radius: 999px;
+      background: rgba(14, 18, 30, 0.64); border: 1px solid var(--border); color: var(--text); font-size: 0.98rem;
     }}
     .chip strong {{ color: #dbe6ff; }}
     .cta-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }}
     .btn {{
-      display: inline-flex; align-items: center; justify-content: center; padding: 11px 14px; border-radius: 14px;
+      display: inline-flex; align-items: center; justify-content: center; padding: 12px 18px; border-radius: 14px;
       border: 1px solid rgba(194, 206, 242, 0.3); background: rgba(94, 112, 168, 0.23);
-      color: var(--text); font-weight: 800; cursor: pointer; transition: transform 0.14s ease, filter 0.14s ease;
+      color: var(--text); font-weight: 800; font-size: 1.02rem; cursor: pointer; transition: transform 0.14s ease, filter 0.14s ease;
     }}
     .btn.primary {{ background: linear-gradient(140deg, #6584ff, #3d63ee); border-color: transparent; }}
     .btn:hover, .nav-link:hover {{ transform: translateY(-1px); filter: brightness(1.03); }}
@@ -1251,24 +1326,45 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         home: "Home",
         uc1: "UC1",
         uc2: "UC2",
-        benchmark: "Benchmark",
+        uc3: "UC3",
+        benchmark: "STT Benchmark",
+        ttsbenchmark: "TTS Benchmark",
         // Home page
-        home_eyebrow: "Consolidated Web UI",
-        home_h2: "Pick a use case, see its value, and inspect the STT model behind it.",
-        home_lead: "This dashboard centralizes UC1 batch QA, UC2 live assistance, and the benchmark matrix. It is driven by config/stt_config.toml, so you can switch STT methods without editing code.",
+        home_eyebrow: "Voice use case prototype",
+        home_h2: "One prototype, many voice use cases — each powered by a different voice method.",
+        home_lead: "This prototype showcases different call-center use case capabilities — offline quality checking, live agent assistance, and fully automated voice calls — each built on a different Azure voice method (batch STT, real-time transcription, and gpt-realtime speech-to-speech + TTS). Two benchmark matrices let you compare STT and TTS models side by side.",
         home_uc1_label: "UC1",
         home_uc2_label: "UC2",
+        home_uc3_label: "UC3",
         home_benchmark_label: "Benchmark default",
         home_btn_live: "Open live assistant",
+        home_btn_voice: "Open voice call",
+        home_open_label: "Choose a use case",
+        home_what_does: "What it does",
+        home_method: "Voice method",
+        home_name_uc1: "Voice Call Quality",
+        home_name_uc2: "Real-time Call Assistant",
+        home_name_uc3: "Voice Live Call",
+        home_name_benchmark: "STT Benchmark",
+        home_name_tts_benchmark: "TTS Benchmark",
+        home_desc_uc1: "Offline batch quality check — transcribe recorded calls and score them against a rubric into a Markdown QA report.",
+        home_desc_uc2: "Live agent copilot — surfaces next-best-action, compliance, and answer cards in real time during a call.",
+        home_desc_uc3: "Fully automated AI voice agent that talks to the caller (speech-to-speech) and escalates specific inquiries to an expert agent.",
+        home_desc_benchmark: "Compare STT models for accuracy, latency, and cost across multiple providers.",
+        home_desc_tts_benchmark: "Compare TTS voices for latency and real-time factor, keeping the generated audio for listening review.",
         home_stats_uc1: "UC1",
         home_stats_uc2: "UC2",
+        home_stats_uc3: "UC3",
         home_stats_benchmark: "Benchmark",
         home_section_cases: "Use cases",
-        home_section_cases_desc: "Each page explains what the use case does, its value, and the STT model it uses.",
+        home_section_cases_desc: "Click a use case on the left to see what it does and which voice method it uses.",
         home_card_btn: "Open page",
-        home_section_snapshot: "Benchmark snapshot",
-        home_section_snapshot_desc: "The latest benchmark run is summarized here; the dedicated benchmark page shows the full history.",
-        home_btn_view_all: "View all benchmark results",
+        vm_title: "Default voice methods",
+        vm_stt: "STT · speech-to-text",
+        vm_tts: "TTS · text-to-speech",
+        vm_improve: "Improve with",
+        vm_stt_skills: "phrase list, custom speech (fine-tuning), locale/language, post-STT corrections",
+        vm_tts_skills: "neural/HD voice, SSML style & prosody, custom/personal voice, locale",
         // UC1 page
         uc1_eyebrow: "UC1 page",
         uc1_h2: "Quality assurance transcription with batch processing",
@@ -1330,6 +1426,77 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         bench_run_summary: "Summary",
         bench_no_runs: "No benchmark runs found yet.",
         bench_no_audio: "No audio files found in the selected path.",
+        // UC3 page + shared use-case detail
+        uc3_eyebrow: "UC3 page",
+        uc3_h2: "Automated voice call (gpt-realtime + TTS)",
+        uc3_what_does: "What this use case does",
+        uc1_lead: "Offline batch QA: turn recorded calls into scored Markdown reports with rubric evidence and phrase boosting.",
+        uc2_lead: "Live coaching: surface next-best-action, compliance, and answer cards in real time while tracking token usage.",
+        uc3_lead: "A fully automated AI voice agent that talks to the caller — it listens, understands, replies in voice, and escalates specific inquiries to an expert agent.",
+        uc1_b1: "Reads audio from Blob Storage or local files and transcribes with Azure Speech.",
+        uc1_b2: "Applies phrase-list boosting and post-STT corrections for domain terms.",
+        uc1_b3: "Scores the transcript against rubric rules and writes Markdown + JSON.",
+        uc2_b1: "Live transcript window with compliance and next-best-action cards.",
+        uc2_b2: "Open the live console to exercise the full assistant.",
+        uc2_b3: "Reports STT mode, LLM mode, token usage, and call audio duration.",
+        uc3_b1: "Speech-to-speech: the AI agent talks directly to the caller in real time.",
+        uc3_b2: "Open the voice call and speak into your microphone.",
+        uc3_b3: "Specific inquiries route to an expert agent, then are spoken back as TTS.",
+        btn_open_live: "Open live console",
+        btn_open_voice: "Open voice call",
+        btn_open_benchmark: "Open benchmark page",
+        btn_open_bench_details: "Open benchmark details",
+        btn_run_matrix: "Run matrix script",
+        btn_open_tts: "Open TTS benchmark",
+        btn_run_quality: "Run quality check",
+        btn_open_stt: "Open STT benchmark",
+        uc1_improve: "phrase list, custom speech (fine-tuning), locale/language, post-STT corrections",
+        uc2_improve: "STT phrase list & locale, agent instructions/prompt, LLM model choice, transcript window size",
+        uc3_improve: "voice selection, transcription model (azure-speech / mai-transcribe-1 / gpt-4o-transcribe), expert agent, VAD & barge-in tuning",
+        // UC1 run page
+        uc1p_eyebrow: "UC1 quality check",
+        uc1p_h2: "Run quality check and review the result on this page.",
+        uc1p_lead: "Change the local source path and STT method for this run. The report summary and per-call results appear below once the job completes.",
+        uc1p_source_mode: "Source mode",
+        uc1p_source_path: "Source path",
+        uc1p_stt: "STT",
+        uc1p_label_source: "Source path (file or folder)",
+        uc1p_label_stt: "STT method",
+        uc1p_btn_run: "Run quality check",
+        uc1p_btn_list: "List files",
+        uc1p_select: "Select",
+        uc1p_what: "What this page does",
+        uc1p_w1: "Shows each local audio file that UC1 will process from the selected source path.",
+        uc1p_w2: "Runs speech recognition, rubric scoring, and Markdown report generation.",
+        uc1p_w3: "Shows run status, pass/fail counts, token usage, and report paths on-page.",
+        uc1p_preview: "Source audio preview",
+        uc1p_preview_desc: "Pick a file to check, listen with the player, then Run quality check.",
+        // TTS benchmark page
+        tts_eyebrow: "TTS benchmark page",
+        tts_h2: "Compare text-to-speech voices in one place.",
+        tts_lead: "Benchmark TTS latency/performance across Voice Live (gpt-realtime), MAI-Voice-2, and Azure neural voices. Generated audio is kept for listening review.",
+        tts_label_dataset: "Dataset JSONL (sample_id, text, language?)",
+        tts_providers: "TTS providers (multi-select)",
+        tts_parallel: "Run providers in parallel",
+        tts_btn_run: "Run TTS benchmark",
+        tts_latest: "Latest run",
+        tts_tip1: "Lower time-to-first-audio and real-time factor are better.",
+        tts_tip2: "Real-time factor < 1.0 means faster than realtime.",
+        tts_tip3: "Naturalness is not auto-scored — listen to the WAVs.",
+        tts_section_latest: "Latest TTS benchmark",
+        tts_section_latest_desc: "Provider averages from the most recent run.",
+        tts_history: "TTS benchmark history",
+        tts_history_desc: "Each run includes the parsed provider table plus the summary excerpt.",
+        tts_th_provider: "Provider",
+        tts_th_samples: "Samples",
+        tts_th_success: "Success",
+        tts_th_ttfa: "Time-to-First-Audio (ms)",
+        tts_th_synth: "Total Synthesis (ms)",
+        tts_th_dur: "Audio Duration (ms)",
+        tts_th_rtf: "Real-Time Factor",
+        tts_run_result: "Run result",
+        tts_audio_suffix: "generated audio",
+        tts_th_sample: "Sample",
         // Common
         voice_model: "Voice model",
         provider: "Provider",
@@ -1345,24 +1512,45 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         home: "首頁",
         uc1: "UC1",
         uc2: "UC2",
-        benchmark: "基準測試",
+        uc3: "UC3",
+        benchmark: "STT 基準測試",
+        ttsbenchmark: "TTS 基準測試",
         // Home page
-        home_eyebrow: "整合網頁介面",
-        home_h2: "選擇一個使用案例，查看其價值，並檢查背後的 STT 模型。",
-        home_lead: "此儀表板集中了 UC1 批量 QA、UC2 實時助手和基準測試矩陣。它由 config/stt_config.toml 驅動，因此您無需編輯程式碼即可切換 STT 方法。",
+        home_eyebrow: "語音使用案例原型",
+        home_h2: "一個原型，多種語音使用案例——每個都由不同的語音方法驅動。",
+        home_lead: "此原型展示不同的客服中心使用案例能力——離線品質檢查、實時坐席協助，以及完全自動的語音通話——每個都建立在不同的 Azure 語音方法上（批量 STT、實時轉錄，以及 gpt-realtime 語音對語音 + TTS）。兩個基準測試矩陣讓您並排比較 STT 和 TTS 模型。",
         home_uc1_label: "UC1",
         home_uc2_label: "UC2",
+        home_uc3_label: "UC3",
         home_benchmark_label: "基準預設",
         home_btn_live: "打開實時助手",
+        home_btn_voice: "打開語音通話",
+        home_open_label: "選擇使用案例",
+        home_what_does: "功能說明",
+        home_method: "語音方法",
+        home_name_uc1: "語音通話品質",
+        home_name_uc2: "實時通話助手",
+        home_name_uc3: "語音即時通話",
+        home_name_benchmark: "STT 基準測試",
+        home_name_tts_benchmark: "TTS 基準測試",
+        home_desc_uc1: "離線批量品質檢查——轉錄錄音通話並依評分準則評分，產生 Markdown QA 報告。",
+        home_desc_uc2: "實時坐席助手——在通話中即時顯示下一步最佳行動、合規與答案卡片。",
+        home_desc_uc3: "完全自動的 AI 語音代理，直接與來電者對話（語音對語音），並將特定查詢轉交專家代理。",
+        home_desc_benchmark: "比較不同提供者的 STT 模型在準確度、延遲與成本上的表現。",
+        home_desc_tts_benchmark: "比較 TTS 語音的延遲與實時因子，並保留產生的音訊供聆聽檢視。",
         home_stats_uc1: "UC1",
         home_stats_uc2: "UC2",
+        home_stats_uc3: "UC3",
         home_stats_benchmark: "基準測試",
         home_section_cases: "使用案例",
-        home_section_cases_desc: "每個頁面都解釋了使用案例的作用、其價值和它使用的 STT 模型。",
+        home_section_cases_desc: "點擊左側的使用案例，查看它的功能及使用的語音方法。",
         home_card_btn: "打開頁面",
-        home_section_snapshot: "基準測試快照",
-        home_section_snapshot_desc: "最新的基準測試執行在此處進行了總結；專用的基準測試頁面顯示完整的歷史記錄。",
-        home_btn_view_all: "查看所有基準測試結果",
+        vm_title: "預設語音方法",
+        vm_stt: "STT · 語音轉文字",
+        vm_tts: "TTS · 文字轉語音",
+        vm_improve: "可改善方式",
+        vm_stt_skills: "短語清單、自訂語音（微調）、地區/語言、轉錄後修正",
+        vm_tts_skills: "神經/HD 語音、SSML 風格與韻律、自訂/個人語音、地區設定",
         // UC1 page
         uc1_eyebrow: "UC1 頁面",
         uc1_h2: "使用批量處理進行品質保證轉錄",
@@ -1424,6 +1612,77 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         bench_run_summary: "摘要",
         bench_no_runs: "尚未找到基準測試運行。",
         bench_no_audio: "在選定的路徑中找不到音訊檔案。",
+        // UC3 page + shared use-case detail
+        uc3_eyebrow: "UC3 頁面",
+        uc3_h2: "自動語音通話（gpt-realtime + TTS）",
+        uc3_what_does: "此使用案例的作用",
+        uc1_lead: "離線批量 QA：將錄音通話轉換成含評分準則佐證與短語增強的評分 Markdown 報告。",
+        uc2_lead: "實時協助：在通話中即時顯示下一步最佳行動、合規與答案卡片，同時追蹤權杖用量。",
+        uc3_lead: "完全自動的 AI 語音代理，直接與來電者對話——聆聽、理解、以語音回覆，並將特定查詢轉交專家代理。",
+        uc1_b1: "從 Blob 儲存體或本機檔案讀取音訊，並以 Azure Speech 轉錄。",
+        uc1_b2: "套用短語清單增強與轉錄後修正以處理專業術語。",
+        uc1_b3: "依評分準則規則為轉錄評分，並輸出 Markdown 與 JSON。",
+        uc2_b1: "實時逐字稿視窗，附合規與下一步最佳行動卡片。",
+        uc2_b2: "從下方按鈕打開實時控制台以體驗完整助手。",
+        uc2_b3: "回報 STT 模式、LLM 模式、權杖用量與通話音訊時長。",
+        uc3_b1: "語音對語音：AI 代理即時直接與來電者對話。",
+        uc3_b2: "打開語音通話並對著麥克風說話。",
+        uc3_b3: "特定查詢會轉交專家代理，再以 TTS 語音回覆。",
+        btn_open_live: "打開實時控制台",
+        btn_open_voice: "打開語音通話",
+        btn_open_benchmark: "打開基準測試頁面",
+        btn_open_bench_details: "打開基準測試詳情",
+        btn_run_matrix: "執行矩陣腳本",
+        btn_open_tts: "打開 TTS 基準測試",
+        btn_run_quality: "執行品質檢查",
+        btn_open_stt: "打開 STT 基準測試",
+        uc1_improve: "短語清單、自訂語音（微調）、地區/語言、轉錄後修正",
+        uc2_improve: "STT 短語清單與地區、代理指示/提示、LLM 模型選擇、逐字稿視窗大小",
+        uc3_improve: "語音選擇、轉錄模型（azure-speech / mai-transcribe-1 / gpt-4o-transcribe）、專家代理、VAD 與插話調校",
+        // UC1 run page
+        uc1p_eyebrow: "UC1 品質檢查",
+        uc1p_h2: "在此頁面執行品質檢查並檢視結果。",
+        uc1p_lead: "可變更本次執行的本機來源路徑與 STT 方法。工作完成後，報告摘要與各通話結果會顯示於下方。",
+        uc1p_source_mode: "來源模式",
+        uc1p_source_path: "來源路徑",
+        uc1p_stt: "STT",
+        uc1p_label_source: "來源路徑（檔案或資料夾）",
+        uc1p_label_stt: "STT 方法",
+        uc1p_btn_run: "執行品質檢查",
+        uc1p_btn_list: "列出檔案",
+        uc1p_select: "選擇",
+        uc1p_what: "此頁面的作用",
+        uc1p_w1: "顯示 UC1 將從選定來源路徑處理的每個本機音訊檔案。",
+        uc1p_w2: "執行語音辨識、評分準則評分與 Markdown 報告產生。",
+        uc1p_w3: "在頁面上顯示執行狀態、通過/失敗數、權杖用量與報告路徑。",
+        uc1p_preview: "來源音訊預覽",
+        uc1p_preview_desc: "選擇要檢查的檔案，使用播放器試聽，然後執行品質檢查。",
+        // TTS benchmark page
+        tts_eyebrow: "TTS 基準測試頁面",
+        tts_h2: "在一處比較文字轉語音的語音。",
+        tts_lead: "在 Voice Live（gpt-realtime）、MAI-Voice-2 與 Azure 神經語音之間進行 TTS 延遲/效能基準測試。產生的音訊會保留以供聆聽檢視。",
+        tts_label_dataset: "資料集 JSONL（sample_id、text、language?）",
+        tts_providers: "TTS 提供者（可多選）",
+        tts_parallel: "並行執行提供者",
+        tts_btn_run: "執行 TTS 基準測試",
+        tts_latest: "最新執行",
+        tts_tip1: "首次音訊時間與實時因子越低越好。",
+        tts_tip2: "實時因子 < 1.0 表示比實時更快。",
+        tts_tip3: "自然度不會自動評分——請聆聽 WAV 檔案。",
+        tts_section_latest: "最新 TTS 基準測試",
+        tts_section_latest_desc: "來自最近一次執行的提供者平均值。",
+        tts_history: "TTS 基準測試歷史",
+        tts_history_desc: "每次執行都包含解析後的提供者表格及摘要摘錄。",
+        tts_th_provider: "提供者",
+        tts_th_samples: "樣本數",
+        tts_th_success: "成功",
+        tts_th_ttfa: "首次音訊時間（毫秒）",
+        tts_th_synth: "總合成時間（毫秒）",
+        tts_th_dur: "音訊時長（毫秒）",
+        tts_th_rtf: "實時因子",
+        tts_run_result: "執行結果",
+        tts_audio_suffix: "產生的音訊",
+        tts_th_sample: "樣本",
         // Common
         voice_model: "語音模型",
         provider: "提供者",
@@ -1449,7 +1708,7 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
       
       // Update nav links
       const navLinks = document.querySelectorAll('.nav-link');
-      const navOrder = ['home', 'uc1', 'uc2', 'benchmark'];
+      const navOrder = ['home', 'uc1', 'uc2', 'uc3', 'benchmark', 'ttsbenchmark'];
       navLinks.forEach((link, idx) => {{
         if (navOrder[idx]) link.textContent = i18n[lang][navOrder[idx]];
       }});
@@ -1505,67 +1764,78 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
 
 def _home_page() -> str:
     cfg = _current_config()
-    overview = _benchmark_overview()
-    latest = overview["latest"]
-    latest_line = (
-        f"Latest benchmark run: {latest.run_id}"
-        if latest
-        else "No benchmark runs found yet."
-    )
-    benchmark_mode = (
-        "Parallel run enabled" if cfg["benchmark_parallel"] else "Sequential run by default"
-    )
-    benchmark_value = f"{benchmark_mode} · {latest_line}"
 
-    cards_html = "".join(
-        f"""
-        <div class="card">
-          <div class="eyebrow">{escape(card.short_name)}</div>
-          <h4>{escape(card.name)}</h4>
-          <p>{escape(card.summary)}</p>
-          <div class="chip-row">
-            <span class="chip"><strong>Value</strong> {escape(card.value)}</span>
-            <span class="chip"><strong>Voice model</strong> {escape(card.voice_model)}</span>
-          </div>
-          <div class="cta-row">
-            <a class="btn primary" href="{card.route}">Open page</a>
-          </div>
-        </div>
-        """
-        for card in _USE_CASE_CARDS
+    # Voice method shown per use case: UC1/UC2 reflect the configured STT provider;
+    # the others advertise their fixed method from the catalog card.
+    method_by_id = {
+        "uc1": cfg["uc1_provider_label"],
+        "uc2": cfg["uc2_provider_label"],
+    }
+
+    def _key(cid: str) -> str:
+        return cid.replace("-", "_")
+
+    nav_buttons = "".join(
+        f'<button type="button" class="uc-nav-btn{" active" if idx == 0 else ""}" '
+        f'data-uc="{card.id}" onclick="selectUseCase(\'{card.id}\')" '
+        f'data-i18n-text="home_name_{_key(card.id)}">{escape(_HOME_NAME_EN.get(card.id, card.short_name))}</button>'
+        for idx, card in enumerate(_USE_CASE_CARDS)
     )
+
+    def _detail_block(card: UseCaseCard, idx: int) -> str:
+        method = method_by_id.get(card.id, card.voice_model)
+        actions = "".join(
+            f'<a class="btn{" primary" if i == 0 else ""}" href="{href}"'
+            + (f' data-i18n-text="{_ACTION_LABEL_KEYS[label]}"' if label in _ACTION_LABEL_KEYS else "")
+            + f">{escape(label)}</a>"
+            for i, (label, href) in enumerate(card.actions)
+        ) or f'<a class="btn primary" href="{card.route}">Open page</a>'
+        hidden = "" if idx == 0 else " hidden"
+        return f"""
+        <article class="card uc-detail" id="detail-{card.id}"{hidden}>
+          <div class="eyebrow">{escape(card.short_name)}</div>
+          <h4 data-i18n-text="home_name_{_key(card.id)}">{escape(_HOME_NAME_EN.get(card.id, card.name))}</h4>
+          <p data-i18n="home_desc_{_key(card.id)}">{escape(_HOME_DESC_EN.get(card.id, card.summary))}</p>
+          <div class="chip-row" style="margin-top:8px;">
+            <span class="chip"><strong data-i18n-text="home_method">Voice method</strong> {escape(method)}</span>
+          </div>
+          <div class="cta-row">{actions}</div>
+        </article>
+        """
+
+    detail_blocks = "".join(_detail_block(card, idx) for idx, card in enumerate(_USE_CASE_CARDS))
+
+    stt_default = cfg["uc1_provider_label"]
+    tts_voice = (
+        os.getenv("AZURE_VOICELIVE_TTS_VOICE")
+        or os.getenv("AZURE_SPEECH_TTS_VOICE")
+        or "zh-TW-HsiaoChenNeural"
+    ).strip()
 
     body = f"""
     <section class="hero">
       <div class="hero-grid">
         <div>
-          <span class="eyebrow" data-i18n-text="home_eyebrow">Consolidated Web UI</span>
-          <h2 data-i18n="home_h2">Pick a use case, see its value, and inspect the STT model behind it.</h2>
+          <span class="eyebrow" data-i18n-text="home_eyebrow">Voice use case prototype</span>
+          <h2 data-i18n="home_h2">One prototype, many voice use cases — each powered by a different voice method.</h2>
           <p class="lead" data-i18n="home_lead">
-            This dashboard centralizes UC1 batch QA, UC2 live assistance, and the benchmark matrix.
-            It is driven by <code>config/stt_config.toml</code>, so you can switch STT methods without editing code.
+            This prototype showcases different call-center use case capabilities — offline quality checking,
+            live agent assistance, and fully automated voice calls — each built on a different Azure voice method
+            (batch STT, real-time transcription, and gpt-realtime speech-to-speech + TTS). Two benchmark matrices
+            let you compare STT and TTS models side by side.
           </p>
-          <div class="chip-row">
-            <span class="chip"><strong data-i18n-text="home_uc1_label">UC1</strong> {escape(cfg["uc1_provider_label"])}</span>
-            <span class="chip"><strong data-i18n-text="home_uc2_label">UC2</strong> {escape(cfg["uc2_provider_label"])}</span>
-            <span class="chip"><strong data-i18n-text="home_benchmark_label">Benchmark default</strong> {escape(', '.join(cfg["benchmark_default_providers"]))}</span>
-          </div>
-          <div class="cta-row">
-            <a class="btn primary" href="/uc2/live" data-i18n-text="home_btn_live">Open live assistant</a>
-          </div>
         </div>
-        <div class="stats">
-          <div class="stat">
-            <div class="k" data-i18n-text="home_stats_uc1">UC1</div>
-            <div class="v">{escape(cfg["uc1_provider_label"])}</div>
+        <div class="panel voice-methods">
+          <h4 data-i18n-text="vm_title">Default voice methods</h4>
+          <div class="vm-block">
+            <div class="vm-k" data-i18n-text="vm_stt">STT · speech-to-text</div>
+            <div class="vm-v">{escape(stt_default)}</div>
+            <div class="vm-tips"><strong data-i18n-text="vm_improve">Improve with</strong>: <span data-i18n-text="vm_stt_skills">phrase list, custom speech (fine-tuning), locale/language, post-STT corrections</span></div>
           </div>
-          <div class="stat">
-            <div class="k" data-i18n-text="home_stats_uc2">UC2</div>
-            <div class="v">{escape(cfg["uc2_provider_label"])}</div>
-          </div>
-          <div class="stat">
-            <div class="k" data-i18n-text="home_stats_benchmark">Benchmark</div>
-            <div class="v">{escape(benchmark_value)}</div>
+          <div class="vm-block">
+            <div class="vm-k" data-i18n-text="vm_tts">TTS · text-to-speech</div>
+            <div class="vm-v">{escape(tts_voice)}</div>
+            <div class="vm-tips"><strong data-i18n-text="vm_improve">Improve with</strong>: <span data-i18n-text="vm_tts_skills">neural/HD voice, SSML style &amp; prosody, custom/personal voice, locale</span></div>
           </div>
         </div>
       </div>
@@ -1575,27 +1845,58 @@ def _home_page() -> str:
       <div class="section-head">
         <div>
           <h3 data-i18n-text="home_section_cases">Use cases</h3>
-          <p data-i18n="home_section_cases_desc">Each page explains what the use case does, its value, and the STT model it uses.</p>
+          <p data-i18n="home_section_cases_desc">Click a use case on the left to see what it does and which voice method it uses.</p>
         </div>
       </div>
-      <div class="grid cards">{cards_html}</div>
+      <div class="home-explorer">
+        <div class="panel home-explorer-nav">
+          <h4 data-i18n-text="home_open_label">Choose a use case</h4>
+          <div class="home-nav-list">
+            {nav_buttons}
+          </div>
+        </div>
+        <div class="home-explorer-detail">
+          {detail_blocks}
+        </div>
+      </div>
     </section>
 
-    <section class="section">
-      <div class="section-head">
-        <div>
-          <h3 data-i18n-text="home_section_snapshot">Benchmark snapshot</h3>
-          <p data-i18n="home_section_snapshot_desc">The latest benchmark run is summarized here; the dedicated benchmark page shows the full history.</p>
-        </div>
-      </div>
-      <div class="panel">
-        <h4>{escape(latest.run_id if latest else 'No benchmark yet')}</h4>
-        <p class="muted">{escape(latest.summary_path.as_posix() if latest else 'Run scripts to generate benchmark data under reports/benchmarks.')}</p>
-        <div class="cta-row">
-          <a class="btn primary" href="/benchmark" data-i18n-text="home_btn_view_all">View all benchmark results</a>
-        </div>
-      </div>
-    </section>
+    <style>
+      .home-explorer {{ display: grid; grid-template-columns: minmax(230px, 280px) 1fr; gap: 18px; align-items: stretch; }}
+      .home-explorer-nav {{ display: flex; flex-direction: column; }}
+      .home-explorer-nav h4 {{ margin: 0 0 4px; font-size: 1.15rem; }}
+      .home-nav-list {{ display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }}
+      .uc-nav-btn {{
+        width: 100%; text-align: left; padding: 15px 18px; border-radius: 14px;
+        border: 1px solid var(--border); background: var(--surface-strong); color: var(--text);
+        cursor: pointer; font-weight: 700; font-family: inherit; font-size: 1.05rem;
+        transition: transform .15s ease, filter .15s ease;
+      }}
+      .uc-nav-btn:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
+      .uc-nav-btn.active {{ background: var(--accent-soft); border-color: var(--accent); }}
+      .home-explorer-detail {{ display: flex; flex-direction: column; }}
+      .home-explorer-detail .uc-detail {{ height: 100%; }}
+      .uc-detail h4 {{ font-size: 1.5rem; }}
+      .uc-detail p {{ font-size: 1.12rem; }}
+      .voice-methods h4 {{ margin: 0 0 6px; }}
+      .voice-methods .vm-block {{ padding: 14px 0; border-top: 1px solid var(--border); }}
+      .voice-methods .vm-block:first-of-type {{ border-top: none; }}
+      .voice-methods .vm-k {{ font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); font-weight: 800; }}
+      .voice-methods .vm-v {{ margin-top: 6px; font-size: 1.15rem; font-weight: 800; }}
+      .voice-methods .vm-tips {{ margin-top: 6px; color: var(--muted); font-size: 0.98rem; line-height: 1.5; }}
+      @media (max-width: 780px) {{ .home-explorer {{ grid-template-columns: 1fr; }} }}
+    </style>
+
+    <script>
+      function selectUseCase(id) {{
+        document.querySelectorAll('.uc-detail').forEach(function (el) {{
+          el.hidden = (el.id !== 'detail-' + id);
+        }});
+        document.querySelectorAll('.uc-nav-btn').forEach(function (b) {{
+          b.classList.toggle('active', b.dataset.uc === id);
+        }});
+      }}
+    </script>
     """
     return _page_shell(_DASHBOARD_TITLE, "home", body, "")
 
@@ -1604,31 +1905,58 @@ def _use_case_page(card: UseCaseCard) -> str:
     cfg = _current_config()
     if card.id == "uc1":
         provider = cfg["uc1_provider_label"]
-        phrase_list = "enabled" if cfg["uc1_phrase_list"] else "disabled"
-        languages = ", ".join(cfg["uc1_languages"]) if cfg["uc1_languages"] else "default zh-TW,en-US"
-        extra = [
-            f"Phrase list: {phrase_list}",
-            f"Languages: {languages}",
-            "Output: scored Markdown QA report + JSON artifacts",
-        ]
     elif card.id == "uc2":
         provider = cfg["uc2_provider_label"]
-        extra = [
-            "Live transcript windows, compliance cards, and token metrics.",
-            "Open the live console from the button below to exercise the full assistant.",
-            "Output: in-browser assist cards plus optional post-call summary.",
-        ]
+    elif card.id == "uc3":
+        provider = card.voice_model
     else:
         provider = ", ".join(cfg["benchmark_default_providers"])
-        extra = [
-            "This page compares STT quality, speed, and cost across providers.",
-            "Use the matrix script or the benchmark page below to inspect every run.",
-            f"Parallel benchmark mode: {'on' if cfg['benchmark_parallel'] else 'off'}",
-        ]
 
-    details_html = "".join(f"<li>{escape(line)}</li>" for line in card.details + extra)
+    bullets_en = {
+        "uc1": [
+            "Reads audio from Blob Storage or local files and transcribes with Azure Speech.",
+            "Applies phrase-list boosting and post-STT corrections for domain terms.",
+            "Scores the transcript against rubric rules and writes Markdown + JSON.",
+        ],
+        "uc2": [
+            "Live transcript window with compliance and next-best-action cards.",
+            "Open the live console to exercise the full assistant.",
+            "Reports STT mode, LLM mode, token usage, and call audio duration.",
+        ],
+        "uc3": [
+            "Speech-to-speech: the AI agent talks directly to the caller in real time.",
+            "Open the voice call and speak into your microphone.",
+            "Specific inquiries route to an expert agent, then are spoken back as TTS.",
+        ],
+    }.get(card.id, [])
+    lead_en = {
+        "uc1": "Offline batch QA: turn recorded calls into scored Markdown reports with rubric evidence and phrase boosting.",
+        "uc2": "Live coaching: surface next-best-action, compliance, and answer cards in real time while tracking token usage.",
+        "uc3": "A fully automated AI voice agent that talks to the caller — it listens, understands, replies in voice, and escalates specific inquiries to an expert agent.",
+    }.get(card.id, card.value)
+
+    details_html = "".join(
+        f'<li data-i18n-text="{card.id}_b{index}">{escape(text)}</li>'
+        for index, text in enumerate(bullets_en, start=1)
+    )
+
+    improve_en = {
+        "uc1": "phrase list, custom speech (fine-tuning), locale/language, post-STT corrections",
+        "uc2": "STT phrase list & locale, agent instructions/prompt, LLM model choice, transcript window size",
+        "uc3": "voice selection, transcription model (azure-speech / mai-transcribe-1 / gpt-4o-transcribe), expert agent, VAD & barge-in tuning",
+    }.get(card.id, "")
+    improve_html = (
+        '<div class="chip-row" style="margin-top:12px;">'
+        '<span class="chip"><strong data-i18n-text="vm_improve">Improve with</strong> '
+        f'<span data-i18n-text="{card.id}_improve">{escape(improve_en)}</span></span></div>'
+        if improve_en
+        else ""
+    )
+
     actions_html = "".join(
-        f'<a class="btn{" primary" if index == 0 else ""}" href="{href}">{escape(label)}</a>'
+        f'<a class="btn{" primary" if index == 0 else ""}" href="{href}"'
+        + (f' data-i18n-text="{_ACTION_LABEL_KEYS[label]}"' if label in _ACTION_LABEL_KEYS else "")
+        + f">{escape(label)}</a>"
         for index, (label, href) in enumerate(card.actions)
     )
 
@@ -1636,9 +1964,9 @@ def _use_case_page(card: UseCaseCard) -> str:
     <section class="hero">
       <div class="hero-grid">
         <div>
-          <span class="eyebrow" data-i18n-text="{'uc1_eyebrow' if card.id == 'uc1' else 'uc2_eyebrow'}">{escape(card.short_name)} page</span>
-          <h2 data-i18n-text="{'uc1_h2' if card.id == 'uc1' else 'uc2_h2'}">{escape(card.name)}</h2>
-          <p class="lead">{escape(card.value)}</p>
+          <span class="eyebrow" data-i18n-text="{card.id}_eyebrow">{escape(card.short_name)} page</span>
+          <h2 data-i18n-text="{card.id}_h2">{escape(card.name)}</h2>
+          <p class="lead" data-i18n="{card.id}_lead">{escape(lead_en)}</p>
           <div class="chip-row">
             <span class="chip"><strong data-i18n-text="voice_model">Voice model</strong> {escape(provider)}</span>
             <span class="chip"><strong data-i18n-text="route">Route</strong> {escape(card.route)}</span>
@@ -1646,13 +1974,21 @@ def _use_case_page(card: UseCaseCard) -> str:
           <div class="cta-row">{actions_html}</div>
         </div>
         <div class="panel">
-          <h4 data-i18n-text="{'uc1_what_does' if card.id == 'uc1' else 'uc2_what_does'}">What this use case does</h4>
+          <h4 data-i18n-text="{card.id}_what_does">What this use case does</h4>
           <ul class="detail-list">{details_html}</ul>
+          {improve_html}
         </div>
       </div>
     </section>
     """
-    stt_label = cfg["uc1_provider_label"] if card.id == "uc1" else (cfg["uc2_provider_label"] if card.id == "uc2" else (cfg["benchmark_default_providers"][0] if cfg["benchmark_default_providers"] else "Configured"))
+    if card.id == "uc1":
+        stt_label = cfg["uc1_provider_label"]
+    elif card.id == "uc2":
+        stt_label = cfg["uc2_provider_label"]
+    elif card.id == "uc3":
+        stt_label = "Voice Live (gpt-realtime)"
+    else:
+        stt_label = cfg["benchmark_default_providers"][0] if cfg["benchmark_default_providers"] else "Configured"
     return _page_shell(card.name, card.id, body, stt_label)
 
 
@@ -1925,12 +2261,15 @@ async def _uc1_run(request: Request) -> HTMLResponse:
   try:
     form = await request.form()
     source_path_raw = str(form.get("source_path") or "").strip()
+    run_target_raw = str(form.get("run_target") or "").strip()
     stt_provider_raw = str(form.get("stt_provider") or "").strip()
     source_path = source_path_raw or None
     stt_provider = stt_provider_raw or None
+    # Prefer the file the user selected in the list; fall back to the typed path.
+    run_target = run_target_raw or source_path
 
     run_summary = await run_uc1(
-      source_path_override=source_path,
+      source_path_override=run_target,
       stt_provider_override=stt_provider,
     )
 
@@ -1953,12 +2292,368 @@ async def _uc1_run(request: Request) -> HTMLResponse:
   )
 
 
+async def _uc1_list(request: Request) -> HTMLResponse:
+  source_path: str | None = None
+  stt_provider: str | None = None
+  try:
+    form = await request.form()
+    source_path = str(form.get("source_path") or "").strip() or None
+    stt_provider = str(form.get("stt_provider") or "").strip() or None
+    message = None
+  except Exception as exc:
+    message = f"Could not list files: {exc}"
+
+  return HTMLResponse(
+    _uc1_page(
+      message=message,
+      source_path_override=source_path,
+      stt_provider_override=stt_provider,
+    )
+  )
+
+
+
 async def _uc2(_: Request) -> HTMLResponse:
     return HTMLResponse(_use_case_page(_USE_CASE_CARDS[1]))
 
 
+async def _uc3(_: Request) -> HTMLResponse:
+    return HTMLResponse(_use_case_page(_USE_CASE_CARDS[2]))
+
+
 async def _benchmark(_: Request) -> HTMLResponse:
     return HTMLResponse(_benchmark_page())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TTS benchmark (dashboard)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class TtsBenchmarkRun:
+    run_id: str
+    summary_path: Path
+    providers: list[dict[str, Any]]
+    excerpt: str
+
+
+def _parse_tts_summary_rows(content: str) -> list[dict[str, Any]]:
+    """Parse the provider table out of a TTS benchmark summary.md."""
+    rows: list[dict[str, Any]] = []
+    in_table = False
+
+    def _num(value: str) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    for line in content.splitlines():
+        if line.startswith("| Provider ") and "Time-to-First-Audio" in line:
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        if line.startswith("|---") or line.startswith("| ---"):
+            continue
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 8:
+            continue
+        rows.append(
+            {
+                "provider": cells[0],
+                "samples": cells[1],
+                "success": cells[2],
+                "avg_char_count": _num(cells[3]),
+                "avg_time_to_first_audio_ms": _num(cells[4]),
+                "avg_total_synthesis_ms": _num(cells[5]),
+                "avg_audio_duration_ms": _num(cells[6]),
+                "avg_real_time_factor": _num(cells[7]),
+            }
+        )
+    return rows
+
+
+def _scan_tts_benchmark_runs(root: Path = _TTS_BENCHMARK_ROOT) -> list[TtsBenchmarkRun]:
+    if not root.exists():
+        return []
+    runs: list[TtsBenchmarkRun] = []
+    for run_dir in sorted((p for p in root.iterdir() if p.is_dir()), reverse=True):
+        summary_path = run_dir / "summary.md"
+        if not summary_path.exists():
+            continue
+        content = summary_path.read_text(encoding="utf-8")
+        excerpt = "\n".join(content.splitlines()[:12]).strip()
+        runs.append(
+            TtsBenchmarkRun(
+                run_id=run_dir.name,
+                summary_path=summary_path,
+                providers=_parse_tts_summary_rows(content),
+                excerpt=excerpt,
+            )
+        )
+    return runs
+
+
+def _tts_run_audio_items(run_dir: Path) -> dict[str, list[Uc1AudioItem]]:
+    """Map each provider folder in a run to its generated WAV artifacts."""
+    result: dict[str, list[Uc1AudioItem]] = {}
+    if not run_dir.exists():
+        return result
+    for provider_dir in sorted(p for p in run_dir.iterdir() if p.is_dir()):
+        wavs: list[Uc1AudioItem] = []
+        for wav in sorted(provider_dir.glob("*.wav")):
+            wavs.append(
+                Uc1AudioItem(
+                    path=str(wav),
+                    name=wav.name,
+                    duration_seconds=_wav_duration(wav),
+                    size_bytes=wav.stat().st_size if wav.exists() else None,
+                )
+            )
+        if wavs:
+            result[provider_dir.name] = wavs
+    return result
+
+
+def _run_tts_benchmark_from_dataset(
+    dataset_path: str, provider_ids: list[str], parallel: bool
+) -> str:
+    providers = [build_tts_provider(provider_id) for provider_id in provider_ids]
+    samples = parse_tts_dataset(Path(dataset_path))
+    run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    output_dir = _TTS_BENCHMARK_ROOT / run_id
+    max_workers = len(providers) if parallel else 1
+    run_tts_benchmark(
+        providers=providers,
+        samples=samples,
+        output_dir=output_dir,
+        max_workers=max_workers,
+    )
+    return run_id
+
+
+def _tts_provider_table_html(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "<p class='muted'>No parsed provider rows found.</p>"
+    body_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(row['provider']))}</td>"
+        f"<td>{escape(str(row['samples']))}</td>"
+        f"<td>{escape(str(row['success']))}</td>"
+        f"<td>{row['avg_time_to_first_audio_ms']:.0f}</td>"
+        f"<td>{row['avg_total_synthesis_ms']:.0f}</td>"
+        f"<td>{row['avg_audio_duration_ms']:.0f}</td>"
+        f"<td>{row['avg_real_time_factor']:.3f}</td>"
+        "</tr>"
+        for row in rows
+    )
+    return f"""
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n-text="tts_th_provider">Provider</th><th data-i18n-text="tts_th_samples">Samples</th><th data-i18n-text="tts_th_success">Success</th>
+            <th data-i18n-text="tts_th_ttfa">Time-to-First-Audio (ms)</th><th data-i18n-text="tts_th_synth">Total Synthesis (ms)</th>
+            <th data-i18n-text="tts_th_dur">Audio Duration (ms)</th><th data-i18n-text="tts_th_rtf">Real-Time Factor</th>
+          </tr>
+        </thead>
+        <tbody>{body_rows}</tbody>
+      </table>
+    </div>
+    """
+
+
+def _tts_audio_players_html(run_id: str) -> str:
+    audio_by_provider = _tts_run_audio_items(_TTS_BENCHMARK_ROOT / run_id)
+    if not audio_by_provider:
+        return ""
+    blocks: list[str] = []
+    for provider, items in audio_by_provider.items():
+        rows = "".join(
+            f"<tr><td>{escape(item.name)}</td>"
+            f"<td>{escape(_format_seconds(item.duration_seconds))}</td>"
+            f"<td><audio class='preview-player' controls preload='none' "
+            f"src='/api/audio/preview?path={escape(quote(item.path, safe=''), quote=True)}'></audio></td></tr>"
+            for item in items
+        )
+        blocks.append(
+            f"""
+            <div class="panel" style="margin-top:12px;">
+              <h4>{escape(provider)} — <span data-i18n-text="tts_audio_suffix">generated audio</span></h4>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th data-i18n-text="tts_th_sample">Sample</th><th data-i18n-text="bench_table_duration">Duration</th><th data-i18n-text="bench_table_play">Play</th></tr></thead>
+                  <tbody>{rows}</tbody>
+                </table>
+              </div>
+            </div>
+            """
+        )
+    return "".join(blocks)
+
+
+def _tts_benchmark_page(
+    message: str | None = None,
+    run_id: str | None = None,
+    dataset_override: str | None = None,
+    selected_providers_override: list[str] | None = None,
+) -> str:
+    runs = _scan_tts_benchmark_runs()
+    latest = runs[0] if runs else None
+    selected_dataset = (dataset_override or _TTS_DEFAULT_DATASET).strip()
+    selected_providers = selected_providers_override or list(_TTS_DEFAULT_PROVIDERS)
+
+    provider_checkboxes = "".join(
+        "<label style=\"display:inline-flex; align-items:center; gap:8px; margin:4px 12px 4px 0;\">"
+        f"<input type=\"checkbox\" name=\"providers\" value=\"{escape(provider_id)}\""
+        f"{' checked' if provider_id in selected_providers else ''} />"
+        f"<span>{escape(provider_id)}</span>"
+        "</label>"
+        for provider_id in _TTS_SUPPORTED_PROVIDERS
+    )
+
+    message_html = ""
+    if message:
+        message_html = f"""
+        <section class="section">
+          <div class="panel"><h4 data-i18n-text="bench_status">Run status</h4><div class="summary-box">{escape(message)}</div></div>
+        </section>
+        """
+
+    result_html = ""
+    if run_id:
+        result_run = next((r for r in runs if r.run_id == run_id), None)
+        if result_run:
+            result_html = f"""
+            <section class="section">
+              <div class="panel">
+                <h4><span data-i18n-text="tts_run_result">Run result</span> — {escape(run_id)}</h4>
+                {_tts_provider_table_html(result_run.providers)}
+              </div>
+              {_tts_audio_players_html(run_id)}
+            </section>
+            """
+
+    latest_html = "<p class='muted'>No TTS benchmark runs found yet.</p>"
+    if latest:
+        latest_html = _tts_provider_table_html(latest.providers)
+
+    run_cards = "".join(
+        f"""
+        <article class="card">
+          <div class="chip-row">
+            <span class="chip"><strong>Run</strong> {escape(run.run_id)}</span>
+            <span class="chip"><strong>Summary</strong> {escape(run.summary_path.as_posix())}</span>
+          </div>
+          <div style="margin-top:12px;">{_tts_provider_table_html(run.providers)}</div>
+          <div class="panel" style="margin-top:12px;">
+            <h4>Summary excerpt</h4>
+            <div class="summary-box">{escape(run.excerpt or '(no excerpt)')}</div>
+          </div>
+        </article>
+        """
+        for run in runs
+    ) or "<p class='muted'>No TTS benchmark runs available yet.</p>"
+
+    body = f"""
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow" data-i18n-text="tts_eyebrow">TTS benchmark page</span>
+          <h2 data-i18n-text="tts_h2">Compare text-to-speech voices in one place.</h2>
+          <p class="lead" data-i18n="tts_lead">
+            Benchmark TTS latency/performance across Voice Live (gpt-realtime), MAI-Voice-2,
+            and Azure neural voices. Generated audio is kept under
+            <code>reports/tts_benchmarks</code> for listening review.
+          </p>
+          <form method="post" action="/tts-benchmark/run" style="margin-top:12px;">
+            <label for="tts_dataset" data-i18n-text="tts_label_dataset">Dataset JSONL ({{sample_id, text, language?}})</label>
+            <input id="tts_dataset" name="dataset" type="text" value="{escape(selected_dataset)}"
+                   placeholder="e.g. data/tts_benchmark.template.jsonl" style="width:100%; margin-top:6px;" />
+            <div class="panel" style="margin-top:12px;">
+              <h4 style="margin-top:0;" data-i18n-text="tts_providers">TTS providers (multi-select)</h4>
+              <div>{provider_checkboxes}</div>
+              <label style="display:inline-flex; align-items:center; gap:8px; margin-top:10px;">
+                <input type="checkbox" name="parallel" value="1" checked /> <span data-i18n-text="tts_parallel">Run providers in parallel</span>
+              </label>
+            </div>
+            <div class="cta-row">
+              <button class="btn primary" type="submit" data-i18n-text="tts_btn_run">Run TTS benchmark</button>
+              <a class="btn" href="/" data-i18n-text="bench_btn_home">Back home</a>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <h4 data-i18n-text="tts_latest">Latest run</h4>
+          <div class="muted">{escape(latest.run_id if latest else 'none')}</div>
+          <ul class="detail-list" style="margin-top:12px;">
+            <li data-i18n-text="tts_tip1">Lower time-to-first-audio and real-time factor are better.</li>
+            <li data-i18n-text="tts_tip2">Real-time factor &lt; 1.0 means faster than realtime.</li>
+            <li data-i18n-text="tts_tip3">Naturalness is not auto-scored — listen to the WAVs.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    {message_html}
+    {result_html}
+
+    <section class="section">
+      <div class="section-head"><div><h3 data-i18n-text="tts_section_latest">Latest TTS benchmark</h3>
+        <p data-i18n="tts_section_latest_desc">Provider averages from the most recent run.</p></div></div>
+      {latest_html}
+    </section>
+
+    <section class="section">
+      <div class="section-head"><div><h3 data-i18n-text="tts_history">TTS benchmark history</h3>
+        <p data-i18n="tts_history_desc">Each run includes the parsed provider table plus the summary excerpt.</p></div></div>
+      <div class="grid">{run_cards}</div>
+    </section>
+    """
+    return _page_shell("TTS Benchmark", "tts-benchmark", body, "Voice Live / MAI-Voice / Azure TTS")
+
+
+async def _tts_benchmark(_: Request) -> HTMLResponse:
+    return HTMLResponse(_tts_benchmark_page())
+
+
+async def _tts_benchmark_run(request: Request) -> HTMLResponse:
+    dataset = _TTS_DEFAULT_DATASET
+    selected_providers: list[str] = []
+    run_id: str | None = None
+    try:
+        form = await request.form()
+        dataset = str(form.get("dataset") or _TTS_DEFAULT_DATASET).strip()
+        parallel = bool(form.get("parallel"))
+        selected_providers = [
+            str(provider).strip()
+            for provider in form.getlist("providers")
+            if str(provider).strip()
+        ]
+        if not selected_providers:
+            raise ValueError("Please select at least one TTS provider.")
+        if not Path(dataset).exists():
+            raise ValueError(f"Dataset not found: {dataset}")
+
+        run_id = await asyncio.to_thread(
+            _run_tts_benchmark_from_dataset, dataset, selected_providers, parallel
+        )
+        message = "TTS benchmark completed. Results and audio are shown below."
+    except Exception as exc:  # noqa: BLE001 - surface run errors in the page
+        message = f"TTS benchmark run failed: {exc}"
+
+    return HTMLResponse(
+        _tts_benchmark_page(
+            message=message,
+            run_id=run_id,
+            dataset_override=dataset,
+            selected_providers_override=selected_providers or None,
+        )
+    )
 
 
 async def _benchmark_run(request: Request) -> HTMLResponse:
@@ -2160,6 +2855,20 @@ async def _api_audio_preview(request: Request) -> Response:
     return FileResponse(str(resolved), media_type=media_type or "application/octet-stream")
 
 
+_FAVICON_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+    "<rect width='64' height='64' rx='12' fill='#0f6cbd'/>"
+    "<path d='M32 14a8 8 0 0 1 8 8v10a8 8 0 0 1-16 0V22a8 8 0 0 1 8-8z' fill='#fff'/>"
+    "<path d='M20 32a12 12 0 0 0 24 0M32 44v6' stroke='#fff' stroke-width='4' "
+    "stroke-linecap='round' fill='none'/>"
+    "</svg>"
+)
+
+
+async def _favicon(request: Request) -> Response:
+    return Response(content=_FAVICON_SVG, media_type="image/svg+xml")
+
+
 def create_app() -> InvocationAgentServerHost:
     load_dotenv(override=False)
     try:
@@ -2168,19 +2877,26 @@ def create_app() -> InvocationAgentServerHost:
         live_uc2_app = InvocationAgentServerHost(
             routes=[Route("/", _uc2_live_unavailable, methods=["GET"], name="uc2_live_unavailable")]
         )
+    live_uc3_app = create_uc3_live_app()
 
     routes = [
         Route("/", _home, methods=["GET"], name="home"),
+        Route("/favicon.ico", _favicon, methods=["GET"], name="favicon"),
         Route("/uc1", _uc1, methods=["GET"], name="uc1"),
         Route("/uc1/run", _uc1_run, methods=["POST"], name="uc1_run"),
+        Route("/uc1/list", _uc1_list, methods=["POST"], name="uc1_list"),
         Route("/api/uc1/report", _api_uc1_report, methods=["GET"], name="api_uc1_report"),
         Route("/api/audio/preview", _api_audio_preview, methods=["GET"], name="api_audio_preview"),
         Route("/uc2", _uc2, methods=["GET"], name="uc2"),
+        Route("/uc3", _uc3, methods=["GET"], name="uc3"),
         Route("/benchmark", _benchmark, methods=["GET"], name="benchmark"),
         Route("/benchmark/run", _benchmark_run, methods=["POST"], name="benchmark_run"),
         Route("/benchmark/script", _benchmark_script, methods=["GET"], name="benchmark_script"),
+        Route("/tts-benchmark", _tts_benchmark, methods=["GET"], name="tts_benchmark"),
+        Route("/tts-benchmark/run", _tts_benchmark_run, methods=["POST"], name="tts_benchmark_run"),
         Route("/api/benchmarks", _api_benchmarks, methods=["GET"], name="api_benchmarks"),
         Mount("/uc2/live", app=live_uc2_app, name="uc2_live"),
+        Mount("/uc3/live", app=live_uc3_app, name="uc3_live"),
     ]
     return InvocationAgentServerHost(routes=routes)
 

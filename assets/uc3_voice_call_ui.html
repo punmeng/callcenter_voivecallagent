@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoiceCall UC3 · Voice Live Call</title>
+  <style>
+    :root {
+      --bg-base: #0f172a;
+      --ink: #ecf0ff;
+      --muted: #c9d0e8;
+      --glass: rgba(18, 22, 34, 0.72);
+      --glass-soft: rgba(29, 35, 54, 0.5);
+      --line: rgba(196, 205, 238, 0.22);
+      --ok: #6fe6be;
+      --warn: #ffd780;
+      --err: #ff9d9d;
+      --brand: #7aa0ff;
+      --brand-2: #67d9ff;
+      --shadow: 0 22px 52px rgba(8, 10, 20, 0.4);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Aptos Display", "Aptos", "Segoe UI Variable", "Trebuchet MS", sans-serif;
+      color: var(--ink);
+      background:
+        linear-gradient(165deg, rgba(30, 33, 63, 0.24), rgba(19, 22, 36, 0.76)),
+        radial-gradient(circle at 20% 14%, rgba(255, 174, 174, 0.46), transparent 40%),
+        radial-gradient(circle at 82% 8%, rgba(120, 117, 255, 0.34), transparent 38%),
+        radial-gradient(circle at 50% 112%, rgba(145, 191, 255, 0.27), transparent 45%),
+        var(--bg-base);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .frame { max-width: 1080px; margin: 0 auto; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+    .brand-pill {
+      display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 999px;
+      background: rgba(16, 20, 32, 0.76); border: 1px solid var(--line); box-shadow: var(--shadow);
+    }
+    .brand-pill strong { font-size: 16px; }
+    .brand-pill .tag { font-size: 12px; color: var(--muted); }
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+    .badge { padding: 6px 12px; border-radius: 999px; background: var(--glass-soft); border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: 340px 1fr; gap: 18px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--glass); border: 1px solid var(--line); border-radius: 16px; padding: 20px;
+      box-shadow: var(--shadow); backdrop-filter: blur(6px);
+    }
+    .panel h3 { margin: 0 0 14px; font-size: 15px; letter-spacing: .3px; }
+    .call-orb {
+      width: 150px; height: 150px; margin: 8px auto 18px; border-radius: 50%;
+      background: radial-gradient(circle at 50% 40%, rgba(122,160,255,.55), rgba(103,217,255,.12) 70%);
+      border: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
+      font-size: 40px; transition: transform .2s ease, box-shadow .2s ease;
+    }
+    .call-orb.listening { box-shadow: 0 0 0 6px rgba(111,230,190,.18); }
+    .call-orb.speaking { box-shadow: 0 0 0 10px rgba(122,160,255,.22); transform: scale(1.04); }
+    .controls { display: flex; gap: 10px; justify-content: center; margin-top: 6px; }
+    .btn {
+      appearance: none; border: 1px solid var(--line); border-radius: 999px; padding: 12px 20px;
+      font-size: 14px; font-weight: 600; cursor: pointer; color: var(--ink); background: var(--glass-soft);
+      transition: transform .15s ease, filter .15s ease;
+    }
+    .btn:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.08); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn.start { background: linear-gradient(135deg, #6fe6be, #67d9ff); color: #08111d; border: none; }
+    .btn.end { background: linear-gradient(135deg, #ff9d9d, #ff6f91); color: #1a0910; border: none; }
+    .btn.rec { background: rgba(255,157,157,.16); border: 1px solid rgba(255,157,157,.5); color: #ffd0d0; }
+    .btn.rec.on { background: linear-gradient(135deg, #ff6f91, #d64d6b); color: #1a0910; border: none; animation: recpulse 1.4s ease-in-out infinite; }
+    @keyframes recpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,111,145,.5); } 50% { box-shadow: 0 0 0 8px rgba(255,111,145,0); } }
+    .status-line { text-align: center; margin-top: 14px; font-size: 13px; color: var(--muted); min-height: 18px; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
+    .metric { text-align: center; padding: 10px 6px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.03); }
+    .metric .v { font-size: 20px; font-weight: 700; }
+    .metric .k { font-size: 11px; color: var(--muted); }
+    .transcript { display: flex; flex-direction: column; gap: 10px; max-height: 520px; overflow-y: auto; padding-right: 6px; }
+    .msg { padding: 10px 14px; border-radius: 12px; max-width: 82%; line-height: 1.5; font-size: 14px; }
+    .msg.user { align-self: flex-end; background: rgba(122,160,255,.18); border: 1px solid rgba(122,160,255,.35); }
+    .msg.assistant { align-self: flex-start; background: rgba(103,217,255,.10); border: 1px solid rgba(103,217,255,.28); }
+    .msg.expert { align-self: center; background: rgba(255,215,128,.12); border: 1px solid rgba(255,215,128,.4); font-size: 13px; max-width: 92%; }
+    .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .4px; }
+    .empty { color: var(--muted); text-align: center; padding: 30px 10px; font-size: 14px; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+    .dot.on { background: var(--ok); }
+    .method-select { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .method-select .sel-head { font-size: 12px; color: var(--muted); letter-spacing: .4px; text-transform: uppercase; }
+    .method-row { display: flex; flex-direction: column; gap: 4px; }
+    .method-row .method-label { font-size: 12px; color: var(--muted); }
+    .method-row select {
+      appearance: none; width: 100%; padding: 9px 12px; border-radius: 10px; cursor: pointer;
+      color: var(--ink); background: rgba(255,255,255,.04); border: 1px solid var(--line);
+      font-size: 13px; font-family: inherit;
+      background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position: calc(100% - 16px) 15px, calc(100% - 11px) 15px; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+    }
+    .method-row select:hover:not(:disabled) { filter: brightness(1.12); }
+    .method-row select:disabled { opacity: .5; cursor: not-allowed; }
+    .method-row select option { background: #141828; color: var(--ink); }
+    .method-hint { font-size: 11px; color: var(--muted); min-height: 14px; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <div class="topbar">
+      <div class="brand-pill">
+        <strong>VoiceCall Verify</strong>
+        <span class="tag">UC3 · Voice Live Call (gpt-realtime + TTS)</span>
+      </div>
+      <div class="badges">
+        <span class="badge" id="listenBadge">listen: —</span>
+        <span class="badge" id="thinkBadge">think: —</span>
+        <span class="badge" id="speakBadge">speak: —</span>
+        <span class="badge" id="expertBadge"><span class="dot" id="expertDot"></span>expert: —</span>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h3>Live Call</h3>
+        <div class="call-orb" id="orb">🎙️</div>
+        <div class="controls">
+          <button class="btn start" id="startBtn">Start call</button>
+          <button class="btn end" id="endBtn" disabled>End call</button>
+          <button class="btn rec" id="recBtn" disabled>● Record</button>
+        </div>
+        <div class="status-line" id="status">Idle. Click "Start call" and allow microphone access.</div>
+        <div class="metrics">
+          <div class="metric"><div class="v" id="mUser">0</div><div class="k">You</div></div>
+          <div class="metric"><div class="v" id="mAssistant">0</div><div class="k">Agent</div></div>
+          <div class="metric"><div class="v" id="mExpert">0</div><div class="k">Expert</div></div>
+        </div>
+        <div class="method-select">
+          <div class="sel-head">Pipeline method</div>
+          <label class="method-row">
+            <span class="method-label">⚙️ Pipeline</span>
+            <select id="selPipeline">
+              <option value="voicelive">Voice Live API · STT+LLM+TTS in one</option>
+              <option value="voicelive-tts">Voice Live STT+LLM → Azure TTS (controllable)</option>
+              <option value="classic">Classic · Azure STT → LLM → Azure TTS</option>
+            </select>
+          </label>
+          <label class="method-row">
+            <span class="method-label">🎧 Listen · STT</span>
+            <select id="selListen">
+              <option value="azure-speech">azure-speech (default)</option>
+              <option value="gpt-4o-transcribe">gpt-4o-transcribe</option>
+              <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
+              <option value="gpt-4o-transcribe-diarize">gpt-4o-transcribe-diarize</option>
+              <option value="mai-transcribe-1">mai-transcribe-1</option>
+              <option value="whisper-1">whisper-1</option>
+            </select>
+          </label>
+          <label class="method-row">
+            <span class="method-label">🔊 Speaker · Voice (language)</span>
+            <select id="selSpeak">
+              <option value="zh-TW-HsiaoChenNeural">中文（繁體）· HsiaoChen</option>
+              <option value="zh-CN-XiaoxiaoNeural">中文（简体）· Xiaoxiao</option>
+              <option value="en-US-JennyNeural">English (US) · Jenny</option>
+              <option value="en-US-AvaNeural">English (US) · Ava</option>
+              <option value="ja-JP-NanamiNeural">日本語 · Nanami</option>
+              <option value="ko-KR-SunHiNeural">한국어 · SunHi</option>
+            </select>
+          </label>
+          <label class="method-row">
+            <span class="method-label">🧠 Think · Model</span>
+            <select id="selThink">
+              <option value="gpt-realtime">gpt-realtime (default)</option>
+              <option value="gpt-4o-realtime-preview">gpt-4o-realtime-preview</option>
+            </select>
+          </label>
+          <div class="method-hint" id="methodHint">Applies to the next call.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Conversation</h3>
+        <div class="transcript" id="transcript">
+          <div class="empty" id="emptyState">Transcript will appear here once the call starts.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+
+    const SAMPLE_RATE = 24000;
+
+    const els = {
+      startBtn: document.getElementById("startBtn"),
+      endBtn: document.getElementById("endBtn"),
+      recBtn: document.getElementById("recBtn"),
+      status: document.getElementById("status"),
+      orb: document.getElementById("orb"),
+      transcript: document.getElementById("transcript"),
+      emptyState: document.getElementById("emptyState"),
+      mUser: document.getElementById("mUser"),
+      mAssistant: document.getElementById("mAssistant"),
+      mExpert: document.getElementById("mExpert"),
+      listenBadge: document.getElementById("listenBadge"),
+      thinkBadge: document.getElementById("thinkBadge"),
+      speakBadge: document.getElementById("speakBadge"),
+      expertBadge: document.getElementById("expertBadge"),
+      expertDot: document.getElementById("expertDot"),
+      selListen: document.getElementById("selListen"),
+      selSpeak: document.getElementById("selSpeak"),
+      selThink: document.getElementById("selThink"),
+      selPipeline: document.getElementById("selPipeline"),
+      methodHint: document.getElementById("methodHint"),
+    };
+
+    // Friendly language label per voice, for the "speak" badge.
+    const VOICE_LANG = {
+      "zh-TW-HsiaoChenNeural": "中文（繁體）",
+      "zh-CN-XiaoxiaoNeural": "中文（简体）",
+      "en-US-JennyNeural": "English (US)",
+      "en-US-AvaNeural": "English (US)",
+      "ja-JP-NanamiNeural": "日本語",
+      "ko-KR-SunHiNeural": "한국어",
+    };
+
+    let ws = null;
+    let micStream = null;
+    let captureCtx = null;
+    let captureNode = null;
+    let sourceNode = null;
+    let playbackCtx = null;
+    let playHead = 0;
+    let assistantStreamEl = null;
+    let recording = false;
+
+    function wsUrl() {
+      const base = location.pathname.replace(/\/?$/, "/");
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const params = new URLSearchParams({
+        pipeline: els.selPipeline.value,
+        transcription: els.selListen.value,
+        voice: els.selSpeak.value,
+        model: els.selThink.value,
+      });
+      return proto + "//" + location.host + base + "audio_ws?" + params.toString();
+    }
+
+    // Classic mode forces Azure Speech STT and a Foundry chat LLM, so the Listen &
+    // Think selectors don't apply there — only the Speaker (Azure neural voice) does.
+    function pipelineHint() {
+      switch (els.selPipeline.value) {
+        case "classic":
+          return "Classic: Azure STT + Foundry LLM + Azure TTS. Applies to the next call.";
+        case "voicelive-tts":
+          return "Voice Live listens & reasons; Azure TTS speaks the reply (pronunciation control). Applies to the next call.";
+        default:
+          return "Applies to the next call.";
+      }
+    }
+
+    function updatePipelineUI() {
+      const classic = els.selPipeline.value === "classic";
+      els.selListen.disabled = classic;
+      els.selThink.disabled = classic;
+      els.methodHint.textContent = pipelineHint();
+    }
+
+    function setMethodSelectorsEnabled(enabled) {
+      els.selPipeline.disabled = !enabled;
+      els.selSpeak.disabled = !enabled;
+      if (enabled) {
+        updatePipelineUI();
+      } else {
+        els.selListen.disabled = true;
+        els.selThink.disabled = true;
+      }
+      els.methodHint.textContent = enabled
+        ? pipelineHint()
+        : "Locked during the call — end the call to change.";
+    }
+
+    function setStatus(text) { els.status.textContent = text; }
+
+    function addMessage(kind, who, text) {
+      if (els.emptyState) { els.emptyState.remove(); els.emptyState = null; }
+      const el = document.createElement("div");
+      el.className = "msg " + kind;
+      const whoEl = document.createElement("div");
+      whoEl.className = "who";
+      whoEl.textContent = who;
+      const body = document.createElement("div");
+      body.textContent = text;
+      el.appendChild(whoEl);
+      el.appendChild(body);
+      els.transcript.appendChild(el);
+      els.transcript.scrollTop = els.transcript.scrollHeight;
+      return body;
+    }
+
+    function b64ToInt16(b64) {
+      const raw = atob(b64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      return new Int16Array(bytes.buffer);
+    }
+
+    function playAudioChunk(b64) {
+      if (!playbackCtx) return;
+      const int16 = b64ToInt16(b64);
+      if (!int16.length) return;
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+      const buffer = playbackCtx.createBuffer(1, float32.length, SAMPLE_RATE);
+      buffer.getChannelData(0).set(float32);
+      const src = playbackCtx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(playbackCtx.destination);
+      const now = playbackCtx.currentTime;
+      if (playHead < now) playHead = now;
+      src.start(playHead);
+      playHead += buffer.duration;
+      els.orb.classList.add("speaking");
+      src.onended = () => {
+        if (playHead - playbackCtx.currentTime < 0.05) els.orb.classList.remove("speaking");
+      };
+    }
+
+    function floatTo16BitPCM(input) {
+      const out = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      return out;
+    }
+
+    async function startCall() {
+      els.startBtn.disabled = true;
+      setMethodSelectorsEnabled(false);
+      setStatus("Requesting microphone…");
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      } catch (err) {
+        setStatus("Microphone permission denied.");
+        els.startBtn.disabled = false;
+        setMethodSelectorsEnabled(true);
+        return;
+      }
+
+      playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+      playHead = 0;
+
+      ws = new WebSocket(wsUrl());
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = () => {
+        setStatus("Connecting to voice agent…");
+        startMicCapture();
+      };
+      ws.onmessage = (evt) => handleServerMessage(evt.data);
+      ws.onerror = () => setStatus("Connection error.");
+      ws.onclose = () => { setStatus("Call ended."); teardown(); };
+    }
+
+    function startMicCapture() {
+      captureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+      sourceNode = captureCtx.createMediaStreamSource(micStream);
+      captureNode = captureCtx.createScriptProcessor(4096, 1, 1);
+      sourceNode.connect(captureNode);
+      captureNode.connect(captureCtx.destination);
+      captureNode.onaudioprocess = (e) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const input = e.inputBuffer.getChannelData(0);
+        const pcm = floatTo16BitPCM(input);
+        ws.send(pcm.buffer);
+      };
+      els.endBtn.disabled = false;
+      els.recBtn.disabled = false;
+      els.orb.classList.add("listening");
+    }
+
+    function handleServerMessage(data) {
+      let msg;
+      try { msg = JSON.parse(data); } catch (e) { return; }
+      switch (msg.type) {
+        case "ready":
+          setStatus("Connected. Start speaking — the agent will greet you.");
+          els.thinkBadge.textContent = "think: " + (msg.model || "—");
+          els.listenBadge.textContent = "listen: " + (msg.transcription_model || "—");
+          {
+            const v = msg.voice || "";
+            const lang = VOICE_LANG[v] || msg.transcription_language || "";
+            els.speakBadge.textContent = "speak: " + (lang ? lang + " · " : "") + (v || "—");
+            const pipe = msg.pipeline === "classic" ? "Classic STT+LLM+TTS"
+              : msg.pipeline === "voicelive-tts" ? "Voice Live STT+LLM · Azure TTS"
+              : "Voice Live API";
+            setStatus("Connected · " + pipe + ". Start speaking — the agent will greet you.");
+            // Sync selectors to the values the backend actually applied.
+            if (msg.transcription_model) els.selListen.value = msg.transcription_model;
+            if (v) els.selSpeak.value = v;
+            if (msg.model && msg.pipeline !== "classic") els.selThink.value = msg.model;
+          }
+          els.expertBadge.childNodes[1].nodeValue =
+            "expert " + (msg.expert_agent_configured ? "✓" : "✗") +
+            " · billing " + (msg.billing_agent_configured ? "✓" : "✗") +
+            " · IT " + (msg.it_agent_configured ? "✓" : "✗");
+          if (msg.expert_agent_configured || msg.billing_agent_configured || msg.it_agent_configured) els.expertDot.classList.add("on");
+          break;
+        case "audio":
+          playAudioChunk(msg.audio);
+          break;
+        case "user_transcript":
+          if (msg.text) addMessage("user", "You", msg.text);
+          if (typeof msg.user_turns === "number") els.mUser.textContent = msg.user_turns;
+          break;
+        case "assistant_transcript_delta":
+          if (!assistantStreamEl) assistantStreamEl = addMessage("assistant", "Agent", "");
+          assistantStreamEl.textContent += msg.text || "";
+          els.transcript.scrollTop = els.transcript.scrollHeight;
+          break;
+        case "assistant_transcript":
+          if (assistantStreamEl) {
+            if (msg.text) assistantStreamEl.textContent = msg.text;
+            assistantStreamEl = null;
+          } else if (msg.text) {
+            addMessage("assistant", "Agent", msg.text);
+          }
+          if (typeof msg.assistant_turns === "number") els.mAssistant.textContent = msg.assistant_turns;
+          break;
+        case "expert_handoff": {
+          const who = msg.agent || "expert";
+          addMessage("expert", "Handoff · " + who, "Consulting " + who + (msg.topic ? " · " + msg.topic : "") + (msg.question ? ": " + msg.question : ""));
+          if (typeof msg.expert_handoffs === "number") els.mExpert.textContent = msg.expert_handoffs;
+          setStatus("Consulting " + who + "…");
+          break;
+        }
+        case "expert_answer": {
+          const who2 = msg.agent || "expert";
+          const title = who2.charAt(0).toUpperCase() + who2.slice(1) + " answer";
+          addMessage("expert", title, msg.text || "");
+          setStatus("Connected. Continue speaking any time.");
+          break;
+        }
+        case "speech_started":
+          els.orb.classList.add("listening");
+          setStatus("Listening…");
+          break;
+        case "speech_stopped":
+          setStatus("Thinking…");
+          break;
+        case "recording_started":
+          recording = true;
+          els.recBtn.classList.add("on");
+          els.recBtn.textContent = "■ Stop recording";
+          setStatus("Recording the conversation…");
+          break;
+        case "recording_saved":
+          recording = false;
+          els.recBtn.classList.remove("on");
+          els.recBtn.textContent = "● Record";
+          addMessage("expert", "Recording saved", (msg.path || "") + (msg.duration_seconds ? "  ·  " + msg.duration_seconds + "s" : ""));
+          setStatus("Recording saved to UC1 source folder. Run UC1 to quality-check it.");
+          break;
+        case "recording_error":
+          recording = false;
+          els.recBtn.classList.remove("on");
+          els.recBtn.textContent = "● Record";
+          setStatus("Recording error: " + (msg.message || "unknown"));
+          break;
+        case "status":
+          if (msg.message) setStatus(msg.message);
+          break;
+        case "error":
+          setStatus("Error: " + (msg.message || "unknown"));
+          break;
+      }
+    }
+
+    function endCall() {
+      try { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "end_call" })); } catch (e) {}
+      if (ws) ws.close();
+      teardown();
+    }
+
+    function toggleRecording() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!recording) {
+        try { ws.send(JSON.stringify({ type: "start_recording" })); } catch (e) {}
+      } else {
+        try { ws.send(JSON.stringify({ type: "stop_recording" })); } catch (e) {}
+        setStatus("Saving recording…");
+      }
+    }
+
+    function teardown() {
+      els.orb.classList.remove("listening", "speaking");
+      els.startBtn.disabled = false;
+      els.endBtn.disabled = true;
+      els.recBtn.disabled = true;
+      els.recBtn.classList.remove("on");
+      els.recBtn.textContent = "● Record";
+      recording = false;
+      assistantStreamEl = null;
+      setMethodSelectorsEnabled(true);
+      try { if (captureNode) { captureNode.disconnect(); captureNode.onaudioprocess = null; } } catch (e) {}
+      try { if (sourceNode) sourceNode.disconnect(); } catch (e) {}
+      try { if (captureCtx) captureCtx.close(); } catch (e) {}
+      try { if (micStream) micStream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+      captureNode = sourceNode = captureCtx = micStream = null;
+    }
+
+    els.startBtn.addEventListener("click", startCall);
+    els.endBtn.addEventListener("click", endCall);
+    els.recBtn.addEventListener("click", toggleRecording);
+    els.selPipeline.addEventListener("change", updatePipelineUI);
+    updatePipelineUI();
+
+    // Select an option by value, creating it if the server uses a value not in the list.
+    function selectOrAdd(sel, value, label) {
+      let opt = Array.from(sel.options).find((o) => o.value === value);
+      if (!opt) {
+        opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label || value;
+        sel.appendChild(opt);
+      }
+      sel.value = value;
+    }
+
+    // Sync the method selectors to the server's actual (env-configured) defaults so we
+    // don't silently override the deployed model / STT / voice with dropdown defaults.
+    async function initFromServer() {
+      try {
+        const base = location.pathname.replace(/\/?$/, "/");
+        const res = await fetch(base + "health");
+        if (!res.ok) return;
+        const cfg = await res.json();
+        if (cfg.transcription_model) selectOrAdd(els.selListen, cfg.transcription_model);
+        if (cfg.voice) selectOrAdd(els.selSpeak, cfg.voice, VOICE_LANG[cfg.voice] || cfg.voice);
+        if (cfg.model) selectOrAdd(els.selThink, cfg.model);
+      } catch (e) { /* keep dropdown defaults on failure */ }
+    }
+    initFromServer();
+  </script>
+</body>
+</html>

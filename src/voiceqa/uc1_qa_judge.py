@@ -33,6 +33,7 @@ class QaJudge:
                 instructions=instructions,
                 agent_name=foundry_agent_name,
                 agent_version=foundry_agent_version,
+                use_portal_instructions=True,
             )
 
         if foundry_project_endpoint and foundry_model_deployment_name:

@@ -1,5 +1,5 @@
 param(
-    [string]$Dataset = 'data/stt_benchmark.jsonl',
+    [string]$Dataset = 'data/stt_benchmark.template.jsonl',
     [string]$OutputDir = 'reports/benchmarks',
     [switch]$IncludeCustomSpeech,
     [switch]$IncludeVoiceLive,
