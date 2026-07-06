@@ -4,14 +4,14 @@ This document covers the **design concept** (how to choose voice tech), the **pe
 
 ## Visual diagrams
 
-Updated design visuals from the spec folder:
+Updated design visuals from the docs/images and spec folders:
 
 - Voice method selection: [../spec/Voice_Method_Selection.png](../spec/Voice_Method_Selection.png)
-- End-to-end architecture: [../spec/VoiceQA_Architecture.png](../spec/VoiceQA_Architecture.png)
+- End-to-end architecture: [images/VoiceQA_Architecture.png](images/VoiceQA_Architecture.png)
 
 ![Voice method selection diagram](../spec/Voice_Method_Selection.png)
 
-![VoiceQA architecture diagram](../spec/VoiceQA_Architecture.png)
+![VoiceQA architecture diagram](images/VoiceQA_Architecture.png)
 
 ---
 
