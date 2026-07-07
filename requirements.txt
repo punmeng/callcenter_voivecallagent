@@ -10,3 +10,4 @@ openai>=1.40.0
 python-dotenv>=1.0.1
 starlette
 markdown>=3.5.0
+opencc-python-reimplemented>=0.1.7

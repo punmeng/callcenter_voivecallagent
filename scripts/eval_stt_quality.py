@@ -39,7 +39,10 @@ def parse_args() -> argparse.Namespace:
             "azure-speech-stt-custom",
             "mai-transcribe-1.5",
             "gpt-audio-transcribe",
-            "voice-live-api",
+            "voice-live-realtime-azure-speech",
+            "voice-live-realtime-azure-speech-phrase-list",
+            "voice-live-realtime-gpt4o-transcribe",
+            "voice-live-realtime-gpt4o-transcribe-phrase-list",
             "voice-live-api-gpt-4o-transcribe",
             "voice-live-api-mai-transcribe-1",
         ],
@@ -47,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="reports/benchmarks",
+        default="reports/stt_benchmarks",
         help="Directory for benchmark outputs.",
     )
     parser.add_argument(

@@ -27,6 +27,7 @@ import asyncio
 import base64
 import contextlib
 import json
+import logging
 import os
 import time
 import wave
@@ -249,6 +250,13 @@ _UC3_VOICE_OPTIONS = {
     "en-US-AvaNeural",
     "ja-JP-NanamiNeural",
     "ko-KR-SunHiNeural",
+    # MAI-Voice-2 prebuilt voices are served via the Azure Speech SDK, so they only
+    # apply to the Azure-TTS pipelines (voicelive-tts / classic), not the all-in-one
+    # Voice Live pipeline. Voice IDs use the '<locale>-<Name>:MAI-Voice-2' form.
+    # zh-CN-Mei is Simplified-Mandarin; it reads Chinese text (including Traditional)
+    # in Mandarin (there is no Traditional zh-TW MAI-Voice-2 voice at present).
+    "en-US-Harper:MAI-Voice-2",
+    "zh-CN-Mei:MAI-Voice-2",
 }
 
 
@@ -777,6 +785,11 @@ async def _handle_voice_ws(websocket: WebSocket, external_tts: bool = False) -> 
     _q = websocket.query_params
     model = _resolve_model(_q.get("model"))
     voice = _resolve_voice(_q.get("voice"))
+    # MAI-Voice / Azure-TTS-only voices (their IDs contain ':') are not valid Voice Live
+    # session voices. In external-TTS mode Voice Live doesn't speak anyway, so keep its
+    # voice field on a known-good neural voice; the real TTS voice below drives Azure
+    # Speech synthesis.
+    session_voice = "zh-TW-HsiaoChenNeural" if ":" in voice else voice
     transcription_model = _resolve_transcription_model(_q.get("transcription"))
     cli_timeout = int((os.getenv("VOICE_LIVE_AZ_CLI_TIMEOUT_SECONDS") or "60").strip())
 
@@ -903,7 +916,7 @@ async def _handle_voice_ws(websocket: WebSocket, external_tts: bool = False) -> 
                             if external_tts
                             else [Modality.AUDIO, Modality.TEXT]
                         ),
-                        voice=_build_voice(voice),
+                        voice=_build_voice(session_voice),
                         instructions=_resolve_prompt(),
                         input_audio_format=InputAudioFormat.PCM16,
                         output_audio_format=OutputAudioFormat.PCM16,
@@ -1468,6 +1481,12 @@ async def _handle_function_call(
 
 def main() -> None:
     load_dotenv(override=False)
+    # Quiet the benign INFO logs from the Azure credential chain (e.g.
+    # "No environment configuration found" from EnvironmentCredential and the IMDS
+    # managed-identity probe). These are normal fallback steps before AzureCliCredential
+    # succeeds, but they look like errors in the console.
+    for _cred_logger in ("azure.identity", "azure.identity.aio"):
+        logging.getLogger(_cred_logger).setLevel(logging.WARNING)
     create_app().run()
 
 

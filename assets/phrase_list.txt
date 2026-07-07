@@ -151,4 +151,8 @@ Response Quality
 回應品質
 Conversation Flow
 對話流程
-
+貨況
+查詢貨況
+的貨況
+貨況查詢
+查詢貨況狀態

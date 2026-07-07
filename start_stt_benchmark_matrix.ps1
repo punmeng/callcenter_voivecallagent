@@ -1,6 +1,6 @@
 param(
     [string]$Dataset = 'data/stt_benchmark.template.jsonl',
-    [string]$OutputDir = 'reports/benchmarks',
+    [string]$OutputDir = 'reports/stt_benchmarks',
     [switch]$IncludeCustomSpeech,
     [switch]$IncludeVoiceLive,
     [switch]$IncludeGptTranscribe,
@@ -64,7 +64,10 @@ if ($IncludeRestTranscribe) {
 }
 
 if ($IncludeVoiceLive) {
-    $providers += 'voice-live-api'
+    $providers += 'voice-live-realtime-azure-speech'
+    $providers += 'voice-live-realtime-azure-speech-phrase-list'
+    $providers += 'voice-live-realtime-gpt4o-transcribe'
+    $providers += 'voice-live-realtime-gpt4o-transcribe-phrase-list'
 }
 
 if ($IncludeGptTranscribe) {

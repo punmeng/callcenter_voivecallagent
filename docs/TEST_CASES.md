@@ -322,7 +322,7 @@ Steps:
 ```
 
 Expected:
-- Run folder created under reports/benchmarks.
+- Run folder created under reports/stt_benchmarks.
 - summary.md generated.
 - No dataset not found error.
 
@@ -339,7 +339,7 @@ Steps:
 ```
 
 Expected:
-- Summary includes voice-live-api rows.
+- Summary includes voice-live-realtime-* rows.
 
 ### TC-STT-003 Direct CLI variants
 

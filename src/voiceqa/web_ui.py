@@ -36,7 +36,7 @@ from .uc3_voice_agent import create_app as create_uc3_live_app
 
 
 _DASHBOARD_TITLE = "VoiceCall Verify"
-_BENCHMARK_ROOT = Path("reports/benchmarks")
+_BENCHMARK_ROOT = Path("reports/stt_benchmarks")
 _TTS_BENCHMARK_ROOT = Path("reports/tts_benchmarks")
 _TTS_SUPPORTED_PROVIDERS = [
     "voice-live-api",
@@ -89,7 +89,10 @@ _BENCHMARK_SUPPORTED_PROVIDERS = [
     "azure-speech-stt-custom",
     "mai-transcribe-1.5",
     "gpt-audio-transcribe",
-    "voice-live-api",
+    "voice-live-realtime-azure-speech",
+    "voice-live-realtime-azure-speech-phrase-list",
+    "voice-live-realtime-gpt4o-transcribe",
+    "voice-live-realtime-gpt4o-transcribe-phrase-list",
 ]
 
 
@@ -199,7 +202,7 @@ _USE_CASE_CARDS = [
         route="/benchmark",
         voice_model="azure-speech-stt, azure-speech-stt-fast, azure-speech-stt-rest, mai-transcribe-1.5, gpt-audio-transcribe, voice-live-api",
         details=[
-            "Reads benchmark runs from reports/benchmarks.",
+            "Reads benchmark runs from reports/stt_benchmarks.",
             "Shows provider averages for WER, CER, keyword recall, latency, and audio cost.",
             "Uses config/stt_config.toml for the default provider list.",
         ],
@@ -587,6 +590,66 @@ def _reference_lookup_from_dataset(reference_dataset_path: str | None) -> dict[s
     return lookup
 
 
+def _benchmark_provider_rows_html(
+    rows: list[dict[str, Any]],
+    *,
+    colspan: int = 8,
+    with_details: bool = False,
+) -> str:
+    """Render provider metric rows, coloring the best value green and the worst value
+    red per metric column when comparing 2+ providers. Lower is better for WER/CER/
+    latency; higher is better for keyword recall/confidence."""
+    if not rows:
+        return f"<tr><td colspan='{colspan}' class='muted'>No provider rows found.</td></tr>"
+
+    def best_worst(key: str, higher_better: bool) -> tuple[float | None, float | None]:
+        vals = [float(r.get(key, 0.0) or 0.0) for r in rows]
+        if len(rows) < 2 or len(set(vals)) < 2:
+            return (None, None)
+        return (max(vals), min(vals)) if higher_better else (min(vals), max(vals))
+
+    bw = {
+        "avg_wer": best_worst("avg_wer", False),
+        "avg_cer": best_worst("avg_cer", False),
+        "avg_keyword_recall": best_worst("avg_keyword_recall", True),
+        "avg_confidence": best_worst("avg_confidence", True),
+        "avg_latency_ms": best_worst("avg_latency_ms", False),
+    }
+
+    def cell(key: str, value: float, fmt: str) -> str:
+        best, worst = bw[key]
+        style = ""
+        if best is not None:
+            if value == best:
+                style = " style=\"color:#22c55e; font-weight:700;\""
+            elif value == worst:
+                style = " style=\"color:#ef4444; font-weight:700;\""
+        return f"<td{style}>{format(value, fmt)}</td>"
+
+    out: list[str] = []
+    for r in rows:
+        row_html = (
+            "<tr>"
+            f"<td>{escape(str(r.get('provider', '')))}</td>"
+            f"<td>{int(r.get('samples', 0) or 0)}</td>"
+            + cell("avg_wer", float(r.get("avg_wer", 0.0) or 0.0), ".4f")
+            + cell("avg_cer", float(r.get("avg_cer", 0.0) or 0.0), ".4f")
+            + cell("avg_keyword_recall", float(r.get("avg_keyword_recall", 0.0) or 0.0), ".4f")
+            + cell("avg_confidence", float(r.get("avg_confidence", 0.0) or 0.0), ".4f")
+            + cell("avg_latency_ms", float(r.get("avg_latency_ms", 0.0) or 0.0), ".2f")
+        )
+        if with_details:
+            prov_json = escape(json.dumps(str(r.get("provider", ""))), quote=True)
+            row_html += (
+                "<td><button style=\"background:rgba(167,139,250,.18); color:#c4b5fd; "
+                "border:1px solid rgba(167,139,250,.45); border-radius:999px; padding:6px 12px; "
+                f"cursor:pointer; font-weight:600;\" onclick=\"openProviderDetails({prov_json})\">Details</button></td>"
+            )
+        row_html += "</tr>"
+        out.append(row_html)
+    return "".join(out)
+
+
 def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
     if run_summary is None:
         return ""
@@ -626,19 +689,9 @@ def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
 
     provider_details_js = json.dumps(provider_details, ensure_ascii=False).replace("</", "<\\/")
 
-    provider_rows = "".join(
-        "<tr>"
-        f"<td>{escape(str(row.get('provider', '')))}</td>"
-        f"<td>{int(row.get('samples', 0))}</td>"
-        f"<td>{float(row.get('avg_wer', 0.0)):.4f}</td>"
-        f"<td>{float(row.get('avg_cer', 0.0)):.4f}</td>"
-        f"<td>{float(row.get('avg_keyword_recall', 0.0)):.4f}</td>"
-        f"<td>{float(row.get('avg_confidence', 0.0)):.4f}</td>"
-        f"<td>{float(row.get('avg_latency_ms', 0.0)):.2f}</td>"
-        f"<td><button style=\"background:rgba(167,139,250,.18); color:#c4b5fd; border:1px solid rgba(167,139,250,.45); border-radius:999px; padding:6px 12px; cursor:pointer; font-weight:600;\" onclick=\"openProviderDetails({escape(json.dumps(str(row.get('provider', ''))), quote=True)})\">Details</button></td>"
-        "</tr>"
-        for row in run_summary.provider_rows
-      ) or "<tr><td colspan='8' class='muted'>No provider rows found in summary.</td></tr>"
+    provider_rows = _benchmark_provider_rows_html(
+        run_summary.provider_rows, colspan=8, with_details=True
+    )
 
     artifact_rows = "".join(
         f"<tr><td><a href=\"/api/uc1/report?path={escape(path, quote=True)}\" style=\"color:#a78bfa; text-decoration:underline;\" onclick=\"return viewBenchmarkArtifact(event)\">{escape(Path(path).name)}</a></td><td>{escape(path)}</td></tr>"
@@ -821,6 +874,7 @@ def _parse_summary_provider_rows(summary_path: Path) -> list[dict[str, Any]]:
 def _build_benchmark_samples_from_source(
   source_path: str,
   reference_dataset_path: str | None = None,
+  selected_paths: list[str] | None = None,
 ) -> list[BenchmarkSample]:
   source_candidate = Path(source_path).expanduser()
   if source_candidate.exists() and source_candidate.is_file() and source_candidate.suffix.lower() == ".jsonl":
@@ -829,6 +883,10 @@ def _build_benchmark_samples_from_source(
 
   reference_lookup = _reference_lookup_from_dataset(reference_dataset_path)
   items = _benchmark_source_audio_items(source_path)
+  # Optional WAV multi-select: keep only the files the user picked on the dashboard.
+  if selected_paths:
+    wanted = {str(p).strip() for p in selected_paths if str(p).strip()}
+    items = [item for item in items if item.path in wanted]
   samples: list[BenchmarkSample] = []
   for item in items:
     audio_path = Path(item.path)
@@ -855,9 +913,10 @@ def _run_benchmark_from_source(
     source_path: str,
     provider_ids: list[str],
     reference_dataset_path: str | None = None,
+    selected_paths: list[str] | None = None,
 ) -> BenchmarkRunSummary:
     providers = [build_provider(provider_id) for provider_id in provider_ids]
-    samples = _build_benchmark_samples_from_source(source_path, reference_dataset_path)
+    samples = _build_benchmark_samples_from_source(source_path, reference_dataset_path, selected_paths)
     if not samples:
         raise ValueError("No audio files found in the selected source path.")
 
@@ -1142,7 +1201,9 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         var(--bg-base);
       font-family: "Aptos Display", "Aptos", "Segoe UI Variable", "Trebuchet MS", sans-serif;
     }}
-    a {{ color: inherit; text-decoration: none; }}
+    a {{ color: #464feb; text-decoration: none; }}
+    tr th, tr td {{ border: 1px solid #e6e6e6; }}
+    tr th {{ background-color: #f5f5f5; }}
     code {{ color: #dbe6ff; background: rgba(12, 16, 28, 0.58); border: 1px solid rgba(187, 201, 244, 0.22); border-radius: 8px; padding: 2px 7px; }}
     .wrap {{ max-width: 1320px; margin: 0 auto; padding: 20px; animation: rise 0.55s ease; }}
     .topbar {{
@@ -1330,9 +1391,9 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         benchmark: "STT Benchmark",
         ttsbenchmark: "TTS Benchmark",
         // Home page
-        home_eyebrow: "Voice use case prototype",
-        home_h2: "One platform, three voice workflows — choose the method that fits your call-center goal.",
-        home_lead: "Use UC1 for offline quality scoring, UC2 for real-time agent assist, and UC3 for fully automated voice calls. Each workflow maps to a specific Azure voice method (batch STT, real-time transcription, or gpt-realtime speech-to-speech + TTS), and the STT/TTS benchmarks help you compare quality, latency, and cost side by side.",
+        home_eyebrow: "Call center Voice AI practices",
+        home_h2: "Explore real-world Voice AI scenarios for modern contact centers",
+        home_lead: "Evaluate how different Voice AI approaches perform across common call center use cases\u2014from post-call quality analysis and real-time agent assistance to fully automated voice interactions.",
         home_uc1_label: "UC1",
         home_uc2_label: "UC2",
         home_uc3_label: "UC3",
@@ -1516,9 +1577,9 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         benchmark: "STT 基準測試",
         ttsbenchmark: "TTS 基準測試",
         // Home page
-        home_eyebrow: "語音使用案例原型",
-        home_h2: "一個原型，多種語音使用案例——每個都由不同的語音方法驅動。",
-        home_lead: "此原型展示不同的客服中心使用案例能力——離線品質檢查、實時坐席協助，以及完全自動的語音通話——每個都建立在不同的 Azure 語音方法上（批量 STT、實時轉錄，以及 gpt-realtime 語音對語音 + TTS）。兩個基準測試矩陣讓您並排比較 STT 和 TTS 模型。",
+        home_eyebrow: "客服中心語音 AI 實踐",
+        home_h2: "探索現代客服中心的實際語音 AI 使用情境",
+        home_lead: "評估不同的語音 AI 方法在常見客服中心使用案例中的表現——從通話後品質分析、即時座席協助，到完全自動的語音互動。",
         home_uc1_label: "UC1",
         home_uc2_label: "UC2",
         home_uc3_label: "UC3",
@@ -1816,13 +1877,11 @@ def _home_page() -> str:
     <section class="hero">
       <div class="hero-grid">
         <div>
-          <span class="eyebrow" data-i18n-text="home_eyebrow">Voice use case prototype</span>
-          <h2 data-i18n="home_h2">One platform, three voice workflows — choose the method that fits your call-center goal.</h2>
+          <span class="eyebrow" data-i18n-text="home_eyebrow">Call center Voice AI practices</span>
+          <h2 data-i18n="home_h2">Explore real-world Voice AI scenarios for modern contact centers</h2>
           <p class="lead" data-i18n="home_lead">
-            Use UC1 for offline quality scoring, UC2 for real-time agent assist, and UC3 for fully automated voice
-            calls. Each workflow maps to a specific Azure voice method (batch STT, real-time transcription, or
-            gpt-realtime speech-to-speech + TTS), and the STT/TTS benchmarks help you compare quality, latency, and
-            cost side by side.
+            Evaluate how different Voice AI approaches perform across common call center use cases—from post-call
+            quality analysis and real-time agent assistance to fully automated voice interactions.
           </p>
         </div>
         <div class="panel voice-methods">
@@ -1998,6 +2057,7 @@ def _benchmark_page(
     source_path_override: str | None = None,
   reference_dataset_override: str | None = None,
     selected_providers_override: list[str] | None = None,
+    selected_wavs_override: list[str] | None = None,
 ) -> str:
     cfg = _current_config()
     overview = _benchmark_overview()
@@ -2012,6 +2072,18 @@ def _benchmark_page(
             provider_ids.append(provider_id)
 
     source_items = _benchmark_source_audio_items(selected_source_path)
+    # WAV multi-select: default to all files checked; preserve the user's choice on re-render.
+    if selected_wavs_override is not None:
+        selected_wav_set = {p for p in selected_wavs_override if p}
+    else:
+        selected_wav_set = {item.path for item in source_items}
+    wav_checkboxes = "".join(
+        f"<label style=\"display:inline-flex; align-items:center; gap:8px; margin:4px 12px 4px 0;\">"
+        f"<input type=\"checkbox\" name=\"selected_wavs\" value=\"{escape(item.path, quote=True)}\"{' checked' if item.path in selected_wav_set else ''} />"
+        f"<span>{escape(item.name)}</span>"
+        "</label>"
+        for item in source_items
+    ) or "<span class='muted'>No audio files found in the selected path.</span>"
     source_rows = "".join(
       f"<tr>"
       f"<td>{escape(item.name)}</td>"
@@ -2048,18 +2120,7 @@ def _benchmark_page(
     latest_cost_html = ""
     latest_recommendation = ""
     if latest:
-        rows = "".join(
-            "<tr>"
-            f"<td>{escape(str(row['provider']))}</td>"
-            f"<td>{row['samples']}</td>"
-            f"<td>{row['avg_wer']:.4f}</td>"
-            f"<td>{row['avg_cer']:.4f}</td>"
-            f"<td>{row['avg_keyword_recall']:.4f}</td>"
-          f"<td>{row.get('avg_confidence', 0.0):.4f}</td>"
-            f"<td>{row['avg_latency_ms']:.2f}</td>"
-            "</tr>"
-            for row in latest.providers
-        )
+        rows = _benchmark_provider_rows_html(latest.providers, colspan=7, with_details=False)
         latest_table_html = f"""
         <div class="table-wrap">
           <table>
@@ -2094,18 +2155,7 @@ def _benchmark_page(
     for run in runs:
         run_table = "<p class='muted'>No parsed provider rows found.</p>"
         if run.providers:
-            run_rows = "".join(
-                "<tr>"
-                f"<td>{escape(str(row['provider']))}</td>"
-                f"<td>{row['samples']}</td>"
-                f"<td>{row['avg_wer']:.4f}</td>"
-                f"<td>{row['avg_cer']:.4f}</td>"
-                f"<td>{row['avg_keyword_recall']:.4f}</td>"
-                f"<td>{row.get('avg_confidence', 0.0):.4f}</td>"
-                f"<td>{row['avg_latency_ms']:.2f}</td>"
-                "</tr>"
-                for row in run.providers
-            )
+            run_rows = _benchmark_provider_rows_html(run.providers, colspan=7, with_details=False)
             run_table = f"""
             <div class="table-wrap">
               <table>
@@ -2173,6 +2223,10 @@ def _benchmark_page(
             <div class="panel" style="margin-top:12px;">
               <h4 style="margin-top:0;" data-i18n-text="bench_stt_methods">STT methods (multi-select)</h4>
               <div>{provider_checkboxes}</div>
+            </div>
+            <div class="panel" style="margin-top:12px;">
+              <h4 style="margin-top:0;" data-i18n-text="bench_wav_files">WAV files to compare (multi-select)</h4>
+              <div>{wav_checkboxes}</div>
             </div>
             <div class="cta-row">
               <button class="btn primary" type="submit" data-i18n-text="bench_btn_run">Run benchmark</button>
@@ -2672,6 +2726,11 @@ async def _benchmark_run(request: Request) -> HTMLResponse:
       for provider in form.getlist("providers")
       if str(provider).strip()
     ]
+    selected_wavs = [
+      str(wav).strip()
+      for wav in form.getlist("selected_wavs")
+      if str(wav).strip()
+    ]
 
     if not source_path:
       raise ValueError("Please provide a WAV source path.")
@@ -2683,6 +2742,7 @@ async def _benchmark_run(request: Request) -> HTMLResponse:
       source_path,
       selected_providers,
       (reference_dataset_path or None),
+      (selected_wavs or None),
     )
     message = "Benchmark completed. Summary and artifacts are shown below."
   except Exception as exc:
@@ -2695,6 +2755,7 @@ async def _benchmark_run(request: Request) -> HTMLResponse:
       source_path_override=source_path,
       reference_dataset_override=reference_dataset_path,
       selected_providers_override=selected_providers,
+      selected_wavs_override=(selected_wavs or None),
     )
   )
 

@@ -29,7 +29,7 @@ Copy [../.env.example](../.env.example) to `.env` and fill in values. Launch the
 ## Visual diagrams
 
 - Voice method selection: [../spec/Voice_Method_Selection.png](../spec/Voice_Method_Selection.png)
-- End-to-end architecture: [../spec/VoiceQA_Architecture.png](../spec/VoiceQA_Architecture.png)
+- End-to-end architecture: [../spec/VoiceQA_Architecture-v1.png](../spec/VoiceQA_Architecture-v1.png)
 
 ## The three use cases
 

@@ -140,6 +140,7 @@ class VoiceLiveProvider(SttProvider):
         transcription_model_override: str | None = None,
         model_override: str | None = None,
         timeout_seconds_override: float | None = None,
+        use_phrase_list: bool = False,
     ) -> None:
         self.name = provider_name
         self._endpoint = (os.getenv("AZURE_VOICELIVE_ENDPOINT") or "").strip()
@@ -152,6 +153,8 @@ class VoiceLiveProvider(SttProvider):
             or "azure-speech"
         ).strip()
         self._transcription_language = (os.getenv("VOICE_LIVE_TRANSCRIPTION_LANGUAGE") or "zh-TW").strip()
+        # Voice Live supports phrase hints via AudioInputTranscriptionOptions.phrase_list.
+        self._phrase_list = self._load_phrase_list() if use_phrase_list else None
         self._chunk_size_bytes = int(os.getenv("VOICE_LIVE_AUDIO_CHUNK_BYTES", "2400"))
         self._retry_count = int(os.getenv("VOICE_LIVE_RETRY_COUNT", "1"))
         if timeout_seconds_override is not None:
@@ -161,10 +164,25 @@ class VoiceLiveProvider(SttProvider):
         self._fallback = DatasetFieldProvider(name=self.name, field_name="voice_live_hypothesis")
         self._last_live_diagnostics = ""
 
+    @staticmethod
+    def _load_phrase_list() -> list[str] | None:
+        """Load phrase hints from PHRASE_LIST_PATH (default assets/phrase_list.txt)."""
+        path = Path(os.getenv("PHRASE_LIST_PATH", "assets/phrase_list.txt"))
+        if not path.exists() or not path.is_file():
+            return None
+        phrases = [
+            line.strip()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        return phrases or None
+
     def display_name(self) -> str:
+        phrase_suffix = ", phrase_list=on" if self._phrase_list else ""
         return (
             f"{self.name} "
-            f"(session={self._model}, transcription={self._transcription_model}, lang={self._transcription_language})"
+            f"(session={self._model}, transcription={self._transcription_model}, "
+            f"lang={self._transcription_language}{phrase_suffix})"
         )
 
     def transcribe(self, sample: BenchmarkSample) -> InferenceResult:
@@ -239,6 +257,7 @@ class VoiceLiveProvider(SttProvider):
         from azure.ai.voicelive.aio import connect
         from azure.ai.voicelive.models import (
             AudioInputTranscriptionOptions,
+            AzureSemanticVad,
             InputAudioFormat,
             Modality,
             RequestSession,
@@ -266,6 +285,20 @@ class VoiceLiveProvider(SttProvider):
                 api_version=self._api_version,
                 model=self._model,
             ) as connection:
+                # Voice Live requires an Azure semantic VAD when the input transcription
+                # model is azure-speech; other transcription models use ServerVad.
+                if self._transcription_model.strip().lower() == "azure-speech":
+                    turn_detection: Any = AzureSemanticVad(
+                        threshold=0.5,
+                        prefix_padding_ms=300,
+                        silence_duration_ms=500,
+                    )
+                else:
+                    turn_detection = ServerVad(
+                        threshold=0.5,
+                        prefix_padding_ms=300,
+                        silence_duration_ms=500,
+                    )
                 session_config = RequestSession(
                     modalities=[Modality.TEXT],
                     input_audio_format=InputAudioFormat.PCM16,
@@ -273,12 +306,9 @@ class VoiceLiveProvider(SttProvider):
                     input_audio_transcription=AudioInputTranscriptionOptions(
                         model=self._transcription_model,
                         language=self._transcription_language,
+                        phrase_list=self._phrase_list,
                     ),
-                    turn_detection=ServerVad(
-                        threshold=0.5,
-                        prefix_padding_ms=300,
-                        silence_duration_ms=500,
-                    ),
+                    turn_detection=turn_detection,
                 )
 
                 await connection.session.update(session=session_config)
@@ -302,10 +332,11 @@ class VoiceLiveProvider(SttProvider):
                         if isinstance(item_id, str) and item_id.strip():
                             committed_item_id = item_id
 
-                    text = self._extract_transcript_from_event(event)
-                    if text:
-                        transcript_parts.append(text)
-
+                    # For STT we take ONLY the final input-audio transcription. Interim
+                    # `.delta` events (partial guesses) and any model response text emitted
+                    # under modalities=TEXT are ignored, so they don't get concatenated into
+                    # the hypothesis (which produced a duplicated "partial + final" transcript
+                    # for streaming models like gpt-4o-transcribe).
                     if event_type == "conversation.item.input_audio_transcription.failed":
                         err = getattr(event, "error", None)
                         if isinstance(err, dict):
@@ -315,6 +346,9 @@ class VoiceLiveProvider(SttProvider):
                         transcription_done = True
 
                     if event_type == "conversation.item.input_audio_transcription.completed":
+                        completed_text = self._extract_transcript_from_event(event)
+                        if completed_text:
+                            transcript_parts.append(completed_text)
                         event_item_id = getattr(event, "item_id", None)
                         if committed_item_id is None or event_item_id == committed_item_id:
                             transcription_done = True
@@ -508,6 +542,19 @@ class MaiTranscribeProvider(SttProvider):
         self._endpoint = (os.getenv("AZURE_SPEECH_ENDPOINT") or os.getenv("SPEECH_ENDPOINT") or "").strip()
         self._api_key = (os.getenv("AZURE_SPEECH_KEY") or os.getenv("SPEECH_KEY") or "").strip()
         self._api_version = (os.getenv("MAI_TRANSCRIBE_API_VERSION") or "2025-10-15").strip()
+        # MAI enhanced mode isn't available on every resource/region yet. Keep it on by
+        # default but allow disabling via env, and auto-fall-back to standard fast
+        # transcription when the service rejects enhanced mode so the benchmark still
+        # yields a transcript instead of an empty result.
+        self._enhanced_mode = (
+            os.getenv("MAI_TRANSCRIBE_ENHANCED_MODE", "1").strip().lower()
+            not in {"0", "false", "no", "off"}
+        )
+        self._locale = (
+            os.getenv("MAI_TRANSCRIBE_LOCALE")
+            or os.getenv("VOICE_LIVE_TRANSCRIPTION_LANGUAGE")
+            or "zh-TW"
+        ).strip()
         self._aad_token_scope = "https://cognitiveservices.azure.com/.default"
         self._fallback = DatasetFieldProvider(
             name=self.name,
@@ -540,8 +587,25 @@ class MaiTranscribeProvider(SttProvider):
         )
 
     def _call_api(self, audio_path: Path) -> dict[str, Any]:
+        try:
+            return self._post_transcription(audio_path, enhanced=self._enhanced_mode)
+        except RuntimeError as exc:
+            message = str(exc)
+            if (
+                self._enhanced_mode
+                and "Enhanced mode" in message
+                and "not supported" in message
+            ):
+                # This resource/region doesn't support MAI enhanced mode yet — retry as a
+                # standard fast-transcription request so we still return a transcript.
+                return self._post_transcription(audio_path, enhanced=False)
+            raise
+
+    def _post_transcription(self, audio_path: Path, *, enhanced: bool) -> dict[str, Any]:
         url = f"{self._endpoint.rstrip('/')}/speechtotext/transcriptions:transcribe?api-version={self._api_version}"
-        content_type, body = self._build_multipart_body(audio_path)
+        content_type, body = self._build_multipart_body(
+            audio_path, enhanced=enhanced, locale=self._locale
+        )
         headers = {
             "Content-Type": content_type,
         }
@@ -569,15 +633,21 @@ class MaiTranscribeProvider(SttProvider):
             raise RuntimeError(f"MAI-Transcribe HTTP {exc.code}: {detail}") from exc
 
     @staticmethod
-    def _build_multipart_body(audio_path: Path) -> tuple[str, bytes]:
+    def _build_multipart_body(
+        audio_path: Path, *, enhanced: bool = True, locale: str = "zh-TW"
+    ) -> tuple[str, bytes]:
         boundary = f"----voiceqa-{uuid.uuid4().hex}"
         audio_mime = mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
-        definition = {
-            "enhancedMode": {
-                "enabled": True,
-                "task": "transcribe",
+        if enhanced:
+            definition: dict[str, Any] = {
+                "enhancedMode": {
+                    "enabled": True,
+                    "task": "transcribe",
+                }
             }
-        }
+        else:
+            # Standard fast-transcription request used when enhanced/MAI mode is unavailable.
+            definition = {"locales": [locale]}
 
         chunks: list[bytes] = []
         chunks.append(f"--{boundary}\r\n".encode("utf-8"))
@@ -1003,8 +1073,45 @@ def _tokenize_chars(text: str) -> list[str]:
     return list(normalized)
 
 
+_S2T_CONVERTER: Any = None
+_S2T_TRIED = False
+
+
+def _to_traditional(text: str) -> str:
+    """Convert Simplified Chinese to Traditional for fair scoring.
+
+    STT engines like gpt-4o-transcribe emit Simplified Chinese (查询/货况) while zh-TW
+    references are Traditional (查詢/貨況); without this both would count as errors.
+    Applied to BOTH reference and hypothesis so the comparison is script-agnostic. Falls
+    back to the original text when OpenCC isn't installed or conversion is disabled via
+    ``STT_BENCHMARK_ZH_TO_TRADITIONAL=0``.
+    """
+    global _S2T_CONVERTER, _S2T_TRIED
+    if not text:
+        return text
+    if os.getenv("STT_BENCHMARK_ZH_TO_TRADITIONAL", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return text
+    if not _S2T_TRIED:
+        _S2T_TRIED = True
+        try:
+            from opencc import OpenCC
+
+            _S2T_CONVERTER = OpenCC("s2t")
+        except Exception:
+            _S2T_CONVERTER = None
+    if _S2T_CONVERTER is None:
+        return text
+    try:
+        return _S2T_CONVERTER.convert(text)
+    except Exception:
+        return text
+
+
 def _normalize_eval_text(text: str, *, keep_spaces: bool) -> str:
     normalized = unicodedata.normalize("NFKC", text or "")
+    # Normalize Chinese script (Simplified -> Traditional) so engines that emit Simplified
+    # aren't penalized against Traditional zh-TW references.
+    normalized = _to_traditional(normalized)
     normalized = normalized.replace("\r", " ").replace("\n", " ").replace("\t", " ")
 
     parts: list[str] = []
@@ -1692,8 +1799,44 @@ def build_provider(name: str) -> SttProvider:
         return AzureSpeechNoPhraseListProvider()
     if normalized == "azure-speech-stt-custom":
         return AzureSpeechCustomProvider()
-    if normalized == "voice-live-api":
-        return VoiceLiveProvider(provider_name="voice-live-api")
+    if normalized in {"voice-live-realtime-azure-speech", "voice-live-api"}:
+        # Voice Live gpt-realtime session + azure-speech input transcription (UC3 pipeline 1
+        # STT). azure-speech transcription requires an Azure semantic VAD (handled in the
+        # provider). "voice-live-api" kept as a legacy alias.
+        return VoiceLiveProvider(
+            provider_name="voice-live-realtime-azure-speech",
+            model_override=(os.getenv("UC3_VOICE_LIVE_MODEL") or "gpt-realtime").strip(),
+            transcription_model_override="azure-speech",
+            timeout_seconds_override=float(os.getenv("VOICE_LIVE_GPT_REALTIME_TIMEOUT_SECONDS", "45")),
+        )
+    if normalized in {"voice-live-realtime-gpt4o-transcribe", "voice-live-api-gpt-realtime"}:
+        # Voice Live gpt-realtime session + gpt-4o-transcribe input transcription (UC3
+        # pipeline 2 STT). "voice-live-api-gpt-realtime" kept as a legacy alias.
+        return VoiceLiveProvider(
+            provider_name="voice-live-realtime-gpt4o-transcribe",
+            model_override=(os.getenv("UC3_VOICE_LIVE_MODEL") or "gpt-realtime").strip(),
+            transcription_model_override="gpt-4o-transcribe",
+            timeout_seconds_override=float(os.getenv("VOICE_LIVE_GPT_REALTIME_TIMEOUT_SECONDS", "45")),
+        )
+    if normalized == "voice-live-realtime-azure-speech-phrase-list":
+        # Same as voice-live-realtime-azure-speech but with Voice Live phrase-list hints
+        # (AudioInputTranscriptionOptions.phrase_list) for an on/off A/B comparison.
+        return VoiceLiveProvider(
+            provider_name="voice-live-realtime-azure-speech-phrase-list",
+            model_override=(os.getenv("UC3_VOICE_LIVE_MODEL") or "gpt-realtime").strip(),
+            transcription_model_override="azure-speech",
+            use_phrase_list=True,
+            timeout_seconds_override=float(os.getenv("VOICE_LIVE_GPT_REALTIME_TIMEOUT_SECONDS", "45")),
+        )
+    if normalized == "voice-live-realtime-gpt4o-transcribe-phrase-list":
+        # Same as voice-live-realtime-gpt4o-transcribe but with Voice Live phrase-list hints.
+        return VoiceLiveProvider(
+            provider_name="voice-live-realtime-gpt4o-transcribe-phrase-list",
+            model_override=(os.getenv("UC3_VOICE_LIVE_MODEL") or "gpt-realtime").strip(),
+            transcription_model_override="gpt-4o-transcribe",
+            use_phrase_list=True,
+            timeout_seconds_override=float(os.getenv("VOICE_LIVE_GPT_REALTIME_TIMEOUT_SECONDS", "45")),
+        )
     if normalized == "voice-live-api-gpt-4o-transcribe":
         # gpt-4o-transcribe input transcription is not valid for some cascaded pipelines (e.g., gpt-5.4).
         # Use a dedicated real-time model unless explicitly overridden.

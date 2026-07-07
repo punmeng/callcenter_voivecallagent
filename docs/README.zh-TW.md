@@ -24,7 +24,7 @@ az login
 ## 視覺圖表
 
 - 語音方法選型圖： [../spec/Voice_Method_Selection.png](../spec/Voice_Method_Selection.png)
-- 端到端架構圖： [../spec/VoiceQA_Architecture.png](../spec/VoiceQA_Architecture.png)
+- 端到端架構圖： [../spec/VoiceQA_Architecture-v1.png](../spec/VoiceQA_Architecture-v1.png)
 
 ## 三個使用案例
 

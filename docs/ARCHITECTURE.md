@@ -151,7 +151,7 @@ The right runtime differs by case: **UC1 is a stateless batch pipeline; UC2/UC3 
 2. Select use-case path (UC1 batch / UC2 assist / UC3 agent).
 3. Run the entrypoint (`start_uc1.ps1` / `start_uc2.ps1` / `start_uc3.ps1`, or `start_voice_ui.ps1`).
 4. Run a benchmark (`start_stt_benchmark_matrix.ps1` / `start_tts_benchmark_matrix.ps1`) for quality/cost comparison — see [BENCHMARKS.md](BENCHMARKS.md).
-5. Review outputs under `reports/` and `reports/benchmarks/<run-id>/`.
+5. Review outputs under `reports/` and `reports/stt_benchmarks/<run-id>/`.
 6. Update design/cost docs when assumptions or architecture change.
 
 **Expansion:** use `catalog/` as the control plane (`voice_catalogs.yaml`, `use_cases/*.yaml`, `methods/*.yaml`, `templates/`). See [DEVELOPMENT.md](DEVELOPMENT.md).

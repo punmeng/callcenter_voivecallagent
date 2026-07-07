@@ -185,17 +185,23 @@ def _wav_duration(path: Path) -> float:
 
 
 _PROVIDER_LABELS: dict[str, str] = {
-    "azure-speech-stt": "Azure Speech Service",
-    "azure-speech-stt-fast": "Azure Speech Service (fast, fixed locale)",
-    "azure-speech-stt-fast-phrase-list": "Azure Speech Service (fast + phrase list)",
-    "azure-speech-stt-rest": "Azure Speech Service (REST fast-transcription)",
-    "azure-speech-stt-custom": "Azure Speech Service (Custom Speech)",
-    "mai-transcribe-1.5": "MAI-Transcribe 1.5",
-    "voice-live-api": "Voice Live API",
-    "voice-live-api-mai-transcribe-1": "Voice Live API (MAI-Transcribe)",
-    "voice-live-api-gpt-4o-transcribe": "Voice Live API (GPT-4o Transcribe)",
-    "gpt-audio-transcribe": "Azure OpenAI Audio Transcription",
-    "browser-web-speech": "Browser Web Speech API",
+    "azure-speech-stt": "Azure Speech SDK — auto-detect + diarization (phrase list ✓)",
+    "azure-speech-stt-fast": "Azure Speech SDK — fast, fixed locale (phrase list ✗)",
+    "azure-speech-stt-fast-phrase-list": "Azure Speech SDK — fast, fixed locale (phrase list ✓)",
+    "azure-speech-stt-rest": "Azure Speech REST fast-transcription (phrase list ✗)",
+    "azure-speech-stt-custom": "Azure Speech Custom Speech (phrase list ✓)",
+    "azure-speech-stt-no-phrase-list": "Azure Speech SDK (phrase list ✗)",
+    "mai-transcribe-1.5": "MAI-Transcribe 1.5 (phrase list ✗)",
+    "voice-live-realtime-azure-speech": "Voice Live · gpt-realtime + Azure Speech STT — UC3 P1 (phrase list ✗)",
+    "voice-live-realtime-azure-speech-phrase-list": "Voice Live · gpt-realtime + Azure Speech STT (phrase list ✓)",
+    "voice-live-realtime-gpt4o-transcribe": "Voice Live · gpt-realtime + GPT-4o Transcribe — UC3 P2 (phrase list ✗)",
+    "voice-live-realtime-gpt4o-transcribe-phrase-list": "Voice Live · gpt-realtime + GPT-4o Transcribe (phrase list ✓)",
+    "voice-live-api": "Voice Live · gpt-realtime + Azure Speech STT — UC3 P1 (phrase list ✗)",
+    "voice-live-api-gpt-realtime": "Voice Live · gpt-realtime + GPT-4o Transcribe — UC3 P2 (phrase list ✗)",
+    "voice-live-api-mai-transcribe-1": "Voice Live · gpt-realtime + MAI-Transcribe (phrase list ✗)",
+    "voice-live-api-gpt-4o-transcribe": "Voice Live · gpt-realtime + GPT-4o Transcribe (phrase list ✗)",
+    "gpt-audio-transcribe": "Azure OpenAI Audio Transcription (phrase list ✗)",
+    "browser-web-speech": "Browser Web Speech API (phrase list ✗)",
 }
 
 

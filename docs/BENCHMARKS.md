@@ -2,7 +2,7 @@
 
 Two benchmark suites compare voice methods with the same dataset and emit run history under `reports/`. Use the **STT benchmark** to pick a transcription method (accuracy/latency/cost) and the **TTS benchmark** to compare synthesis providers (latency/perf + kept audio for MOS review).
 
-- STT: `python scripts/eval_stt_quality.py` · `start_stt_benchmark_matrix.ps1` → `reports/benchmarks/<run-id>/`
+- STT: `python scripts/eval_stt_quality.py` · `start_stt_benchmark_matrix.ps1` → `reports/stt_benchmarks/<run-id>/`
 - TTS: `python scripts/eval_tts_quality.py` · `start_tts_benchmark_matrix.ps1` → `reports/tts_benchmarks/<run-id>/`
 
 ---
@@ -14,13 +14,15 @@ Compares transcript quality/latency/cost across providers:
 - `azure-speech-stt`, `azure-speech-stt-fast`, `azure-speech-stt-fast-phrase-list`, `azure-speech-stt-rest`, `azure-speech-stt-custom`
 - `mai-transcribe-1.5`
 - `gpt-audio-transcribe`
-- `voice-live-api`
+- Voice Live (all use a `gpt-realtime` session — mirror UC3 pipelines 1/2, split by transcription model):
+  - `voice-live-realtime-azure-speech` and `voice-live-realtime-azure-speech-phrase-list`
+  - `voice-live-realtime-gpt4o-transcribe` and `voice-live-realtime-gpt4o-transcribe-phrase-list`
 
 Metrics per provider: WER, CER, keyword recall, average latency, and a **weighted decision score** (default `70%` raw accuracy, `20%` latency, `10%` estimated cost). `summary.md` also appends an audio cost estimate.
 
 ### Two sectors
 - **STT benchmark sector** — quality and latency for transcript output.
-- **Voice model benchmark sector** — table-aligned recommendation for when to use the managed realtime voice service (`voice-live-api`) vs STT-focused engines.
+- **Voice model benchmark sector** — table-aligned recommendation for when to use the managed realtime voice service (`voice-live-realtime-*`) vs STT-focused engines.
 
 ### Table-aligned approach
 - **STT-only path** (Azure Speech / MAI-Transcribe): prioritize WER/CER and keyword recall; latency & cost as tie-breakers.
@@ -30,7 +32,7 @@ Metrics per provider: WER, CER, keyword recall, average latency, and a **weighte
 ### Traditional Chinese decision matrix
 Treat the benchmark as a decision matrix, not a single WER table:
 - **Primary axis:** raw transcript accuracy (the weighted score). **Secondary:** corrected-transcript accuracy (reported separately so repo correction rules don't bias ranking).
-- **Normalization:** NFKC, ignore punctuation, collapse whitespace, lower-case Latin — so mixed zh-TW + English is judged consistently.
+- **Normalization:** NFKC, ignore punctuation, collapse whitespace, lower-case Latin, and **Simplified→Traditional** (OpenCC `s2t`) so engines that emit Simplified Chinese (e.g. `gpt-4o-transcribe`) aren't penalized against Traditional zh-TW references — disable with `STT_BENCHMARK_ZH_TO_TRADITIONAL=0`. Mixed zh-TW + English is judged consistently.
 - **Keyword coverage:** populate `keywords` with business terms that matter downstream (product names, addresses, cancel/reschedule intents, policy phrases, account-verification terms).
 - **Sample coverage:** short/noisy/mixed/agent-heavy/customer-heavy calls and calls with named entities.
 - **Decision threshold:** don't standardize on one provider unless it stays near the top across all scenario buckets, not just the overall average.
@@ -48,7 +50,7 @@ Required: `call_id`, `audio_path`, `reference_text`. Recommended: `keywords` (2�
 .\start_stt_benchmark_matrix.ps1                 # default STT-oriented paths
 .\start_stt_benchmark_matrix.ps1 -IncludeVoiceLive
 ```
-Outputs: `reports/benchmarks/<run-id>/summary.md`, `reports/benchmarks/<run-id>/<provider>.results.jsonl`. Optional `AZURE_VOICELIVE_MODEL` (default `gpt-realtime`).
+Outputs: `reports/stt_benchmarks/<run-id>/summary.md`, `reports/stt_benchmarks/<run-id>/<provider>.results.jsonl`. The Voice Live methods pin the session model via `UC3_VOICE_LIVE_MODEL` (default `gpt-realtime`).
 
 ---
 
@@ -96,9 +98,9 @@ The same model families appear under different identifiers in different places �
 | Azure Speech | `azure-speech-stt` (+ `-fast`, `-rest`, `-custom`) | `azure-speech` | `azure-speech-tts` |
 | GPT transcribe | `gpt-audio-transcribe` | `gpt-4o-transcribe` (+ `-mini`, `-diarize`) | — |
 | MAI | `mai-transcribe-1.5` | `mai-transcribe-1` | `mai-voice` (MAI-Voice-2, TTS) |
-| Voice Live | `voice-live-api` | `gpt-realtime` / `gpt-4o-realtime-preview` | `voice-live-api` / `gpt-realtime` |
+| Voice Live | `voice-live-realtime-azure-speech` / `-gpt4o-transcribe` (+ `-phrase-list`) | `gpt-realtime` / `gpt-4o-realtime-preview` | `voice-live-api` / `gpt-realtime` |
 
-> Note: STT benchmark also supports `voice-live-api-gpt-4o-transcribe` and `voice-live-api-mai-transcribe-1` variants for Voice Live transcription-model pinning.
+> Note: `voice-live-api` and `voice-live-api-gpt-realtime` remain as legacy aliases for the two methods above. The `-phrase-list` variants pass domain hints via Voice Live's `AudioInputTranscriptionOptions.phrase_list`. `voice-live-api-mai-transcribe-1` is also available for MAI transcription-model pinning.
 
 ---
 
@@ -110,7 +112,7 @@ The same model families appear under different identifiers in different places �
 | STT scoring weights (accuracy/latency/cost) | [../src/voiceqa/stt_benchmark.py](../src/voiceqa/stt_benchmark.py) (`load_scoring_profile`) |
 | TTS provider factory and defaults | [../src/voiceqa/tts_benchmark.py](../src/voiceqa/tts_benchmark.py) (`build_tts_provider`) |
 | TTS Voice Live strategy (`pregenerated` vs `instructions`) | [../src/voiceqa/tts_benchmark.py](../src/voiceqa/tts_benchmark.py) (`VoiceLiveTtsProvider._synthesize_via_voicelive`) |
-| Dashboard benchmark provider whitelist/defaults | [../src/voiceqa/web_ui.py](../src/voiceqa/web_ui.py) (`_STT_SUPPORTED_PROVIDERS`, `_TTS_SUPPORTED_PROVIDERS`, `_TTS_DEFAULT_PROVIDERS`) |
+| Dashboard benchmark provider whitelist/defaults | [../src/voiceqa/web_ui.py](../src/voiceqa/web_ui.py) (`_BENCHMARK_SUPPORTED_PROVIDERS`, `_TTS_SUPPORTED_PROVIDERS`, `_TTS_DEFAULT_PROVIDERS`) |
 | STT matrix run presets | [../start_stt_benchmark_matrix.ps1](../start_stt_benchmark_matrix.ps1) |
 | TTS matrix run presets | [../start_tts_benchmark_matrix.ps1](../start_tts_benchmark_matrix.ps1) |
 

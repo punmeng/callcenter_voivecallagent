@@ -4,6 +4,8 @@ UC3 is a **fully automated AI voice agent** that talks directly to the caller. B
 
 > UC1 = offline QA scoring · UC2 = live coaching for a human agent · **UC3 = the AI *is* the agent**.
 
+![UC3 voice agent live call](images/07_uc3_livecall.png)
+
 ## Contents
 1. [Pipelines](#1-pipelines)
 2. [What UC3 does](#2-what-uc3-does)
@@ -132,6 +134,8 @@ When Azure Speech TTS speaks the reply, `_apply_speech_control(text)` builds SSM
 | tools | `query_billing`, `query_it_support`, `escalate_to_expert` | same |
 
 UI method selectors send `transcription` / `voice` / `model` overrides, validated in `_resolve_transcription_model` / `_resolve_voice` / `_resolve_model`; unknown values fall back to env defaults.
+
+**Voice options (Speak):** the Speaker dropdown offers Azure neural voices (`zh-TW-HsiaoChenNeural`, `zh-CN-XiaoxiaoNeural`, `en-US-JennyNeural`, `en-US-AvaNeural`, `ja-JP-NanamiNeural`, `ko-KR-SunHiNeural`) plus **MAI-Voice-2** voices (`en-US-Harper:MAI-Voice-2`, `zh-CN-Mei:MAI-Voice-2`). MAI voices render through Azure Speech TTS, so they apply only to the `voicelive-tts` and `classic` pipelines and are hidden for the all-in-one `voicelive` pipeline.
 
 ---
 

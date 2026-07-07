@@ -110,6 +110,7 @@
         <span class="tag">UC3 · Voice Live Call (gpt-realtime + TTS)</span>
       </div>
       <div class="badges">
+        <span class="badge" id="pipelineBadge">pipeline: —</span>
         <span class="badge" id="listenBadge">listen: —</span>
         <span class="badge" id="thinkBadge">think: —</span>
         <span class="badge" id="speakBadge">speak: —</span>
@@ -137,9 +138,9 @@
           <label class="method-row">
             <span class="method-label">⚙️ Pipeline</span>
             <select id="selPipeline">
-              <option value="voicelive">Voice Live API · STT+LLM+TTS in one</option>
-              <option value="voicelive-tts">Voice Live STT+LLM → Azure TTS (controllable)</option>
-              <option value="classic">Classic · Azure STT → LLM → Azure TTS</option>
+              <option value="voicelive">① Voice Live · all-in-one (STT+LLM+TTS)</option>
+              <option value="voicelive-tts">② Voice Live STT+LLM → Azure/MAI TTS</option>
+              <option value="classic">③ Classic · Azure STT → LLM → Azure/MAI TTS</option>
             </select>
           </label>
           <label class="method-row">
@@ -162,6 +163,8 @@
               <option value="en-US-AvaNeural">English (US) · Ava</option>
               <option value="ja-JP-NanamiNeural">日本語 · Nanami</option>
               <option value="ko-KR-SunHiNeural">한국어 · SunHi</option>
+              <option value="en-US-Harper:MAI-Voice-2" data-azuretts="1">English (US) · Harper · MAI-Voice-2</option>
+              <option value="zh-CN-Mei:MAI-Voice-2" data-azuretts="1">中文（普通话）· Mei · MAI-Voice-2</option>
             </select>
           </label>
           <label class="method-row">
@@ -200,6 +203,7 @@
       mUser: document.getElementById("mUser"),
       mAssistant: document.getElementById("mAssistant"),
       mExpert: document.getElementById("mExpert"),
+      pipelineBadge: document.getElementById("pipelineBadge"),
       listenBadge: document.getElementById("listenBadge"),
       thinkBadge: document.getElementById("thinkBadge"),
       speakBadge: document.getElementById("speakBadge"),
@@ -220,7 +224,22 @@
       "en-US-AvaNeural": "English (US)",
       "ja-JP-NanamiNeural": "日本語",
       "ko-KR-SunHiNeural": "한국어",
+      "en-US-Harper:MAI-Voice-2": "English (US) · MAI-Voice",
+      "zh-CN-Mei:MAI-Voice-2": "中文（普通话）· MAI-Voice",
     };
+
+    // Short label per pipeline, for the "pipeline" badge.
+    const PIPELINE_LABEL = {
+      "voicelive": "Voice Live (all-in-one)",
+      "voicelive-tts": "Voice Live + external TTS",
+      "classic": "Classic",
+    };
+
+    // Health config from the server (handoff availability + defaults) and the exact
+    // "think" model the backend reports on `ready` (used for the classic pipeline,
+    // whose LLM is a Foundry deployment not shown in the Think dropdown).
+    let serverCfg = null;
+    let appliedThink = null;
 
     let ws = null;
     let micStream = null;
@@ -249,19 +268,90 @@
     function pipelineHint() {
       switch (els.selPipeline.value) {
         case "classic":
-          return "Classic: Azure STT + Foundry LLM + Azure TTS. Applies to the next call.";
+          return "Classic: Azure STT + Foundry LLM + Azure/MAI TTS. Applies to the next call.";
         case "voicelive-tts":
-          return "Voice Live listens & reasons; Azure TTS speaks the reply (pronunciation control). Applies to the next call.";
+          return "Voice Live listens & reasons; Azure/MAI TTS speaks the reply (pronunciation control). Applies to the next call.";
         default:
-          return "Applies to the next call.";
+          return "Voice Live handles everything (MAI voices not available here). Applies to the next call.";
       }
     }
 
     function updatePipelineUI() {
       const classic = els.selPipeline.value === "classic";
-      els.selListen.disabled = classic;
+      // Listen is selectable in every pipeline (classic is limited to azure-speech via
+      // updateListenOptions); Think is fixed to a Foundry deployment in classic.
+      els.selListen.disabled = false;
       els.selThink.disabled = classic;
       els.methodHint.textContent = pipelineHint();
+      updateListenOptions();
+      updateVoiceOptions();
+      updateBadges();
+    }
+
+    // Classic uses a streaming Azure Speech recognizer, so only 'azure-speech' is valid
+    // there. The other options are Voice Live transcription models; hide them for classic
+    // and fall back to azure-speech if the current pick becomes unavailable.
+    function updateListenOptions() {
+      const classic = els.selPipeline.value === "classic";
+      let currentHidden = false;
+      Array.from(els.selListen.options).forEach((o) => {
+        if (o.value !== "azure-speech") {
+          o.hidden = classic;
+          o.disabled = classic;
+          if (classic && o.value === els.selListen.value) currentHidden = true;
+        }
+      });
+      if (currentHidden) els.selListen.value = "azure-speech";
+    }
+
+    // MAI-Voice voices are served through Azure Speech TTS, so they only apply to the
+    // Azure-TTS pipelines (voicelive-tts / classic). Hide them for the all-in-one Voice
+    // Live pipeline and fall back to a neural voice if the current pick becomes hidden.
+    function updateVoiceOptions() {
+      const azureTts = els.selPipeline.value !== "voicelive";
+      let currentHidden = false;
+      Array.from(els.selSpeak.options).forEach((o) => {
+        if (o.dataset.azuretts === "1") {
+          o.hidden = !azureTts;
+          o.disabled = !azureTts;
+          if (!azureTts && o.value === els.selSpeak.value) currentHidden = true;
+        }
+      });
+      if (currentHidden) els.selSpeak.value = "zh-TW-HsiaoChenNeural";
+    }
+
+    // Keep the top status bar aligned with the CURRENT selection (before a call) and
+    // with what the backend actually applied (after `ready`). Classic forces Azure
+    // Speech STT + a Foundry LLM and has no billing/IT/expert handoffs, so reflect that.
+    function updateBadges() {
+      const pipe = els.selPipeline.value;
+      const classic = pipe === "classic";
+      const azureTts = classic || pipe === "voicelive-tts";
+
+      els.pipelineBadge.textContent = "pipeline: " + (PIPELINE_LABEL[pipe] || pipe);
+      els.listenBadge.textContent = "listen: " + (classic ? "azure-speech" : els.selListen.value);
+      els.thinkBadge.textContent =
+        "think: " + (classic ? (appliedThink || "Foundry LLM") : els.selThink.value);
+
+      const v = els.selSpeak.value;
+      const lang = VOICE_LANG[v] || "";
+      els.speakBadge.textContent =
+        "speak: " + (lang ? lang + " · " : "") + v + " · " + (azureTts ? "Azure TTS" : "Voice Live");
+
+      if (classic) {
+        els.expertBadge.childNodes[1].nodeValue = "handoffs: n/a (classic)";
+        els.expertDot.classList.remove("on");
+      } else if (serverCfg) {
+        const e = serverCfg.expert_agent_configured;
+        const b = serverCfg.billing_agent_configured;
+        const it = serverCfg.it_agent_configured;
+        els.expertBadge.childNodes[1].nodeValue =
+          "expert " + (e ? "✓" : "✗") + " · billing " + (b ? "✓" : "✗") + " · IT " + (it ? "✓" : "✗");
+        els.expertDot.classList.toggle("on", !!(e || b || it));
+      } else {
+        els.expertBadge.childNodes[1].nodeValue = "expert: —";
+        els.expertDot.classList.remove("on");
+      }
     }
 
     function setMethodSelectorsEnabled(enabled) {
@@ -333,9 +423,35 @@
       return out;
     }
 
+    // Fully detach and dispose any leftover connection/audio state from a previous call
+    // so switching pipelines (e.g. classic -> voicelive) can't leak a stale WebSocket
+    // whose late `onclose` would tear down the new call, or a stale audio context.
+    function resetForNewCall() {
+      if (ws) {
+        try { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; } catch (e) {}
+        try { ws.close(); } catch (e) {}
+        ws = null;
+      }
+      try { if (captureNode) { captureNode.disconnect(); captureNode.onaudioprocess = null; } } catch (e) {}
+      try { if (sourceNode) sourceNode.disconnect(); } catch (e) {}
+      try { if (captureCtx) captureCtx.close(); } catch (e) {}
+      try { if (playbackCtx) playbackCtx.close(); } catch (e) {}
+      try { if (micStream) micStream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+      captureNode = sourceNode = captureCtx = playbackCtx = micStream = null;
+      assistantStreamEl = null;
+      appliedThink = null;
+      recording = false;
+      playHead = 0;
+      els.orb.classList.remove("listening", "speaking");
+    }
+
     async function startCall() {
       els.startBtn.disabled = true;
       setMethodSelectorsEnabled(false);
+      // Defensive reset: dispose any leftover connection/audio state from a previous call
+      // (e.g. switching classic -> voicelive) so a stale WebSocket's late `onclose` can't
+      // tear down this new call and nothing leaks between sessions.
+      resetForNewCall();
       setStatus("Requesting microphone…");
       try {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
@@ -384,26 +500,28 @@
       switch (msg.type) {
         case "ready":
           setStatus("Connected. Start speaking — the agent will greet you.");
-          els.thinkBadge.textContent = "think: " + (msg.model || "—");
-          els.listenBadge.textContent = "listen: " + (msg.transcription_model || "—");
           {
             const v = msg.voice || "";
-            const lang = VOICE_LANG[v] || msg.transcription_language || "";
-            els.speakBadge.textContent = "speak: " + (lang ? lang + " · " : "") + (v || "—");
             const pipe = msg.pipeline === "classic" ? "Classic STT+LLM+TTS"
               : msg.pipeline === "voicelive-tts" ? "Voice Live STT+LLM · Azure TTS"
               : "Voice Live API";
             setStatus("Connected · " + pipe + ". Start speaking — the agent will greet you.");
-            // Sync selectors to the values the backend actually applied.
-            if (msg.transcription_model) els.selListen.value = msg.transcription_model;
+            // Sync the selectors + badges to the values the backend actually applied.
+            if (msg.pipeline) els.selPipeline.value = msg.pipeline;
+            if (msg.transcription_model && msg.pipeline !== "classic") els.selListen.value = msg.transcription_model;
             if (v) els.selSpeak.value = v;
             if (msg.model && msg.pipeline !== "classic") els.selThink.value = msg.model;
+            // Classic's LLM is a Foundry deployment (not in the Think dropdown); remember
+            // the exact model the server reported so the badge shows it.
+            appliedThink = msg.pipeline === "classic" ? (msg.model || null) : null;
+            // Reflect the handoff availability the server reported for this call.
+            serverCfg = Object.assign(serverCfg || {}, {
+              expert_agent_configured: msg.expert_agent_configured,
+              billing_agent_configured: msg.billing_agent_configured,
+              it_agent_configured: msg.it_agent_configured,
+            });
+            updateBadges();
           }
-          els.expertBadge.childNodes[1].nodeValue =
-            "expert " + (msg.expert_agent_configured ? "✓" : "✗") +
-            " · billing " + (msg.billing_agent_configured ? "✓" : "✗") +
-            " · IT " + (msg.it_agent_configured ? "✓" : "✗");
-          if (msg.expert_agent_configured || msg.billing_agent_configured || msg.it_agent_configured) els.expertDot.classList.add("on");
           break;
         case "audio":
           playAudioChunk(msg.audio);
@@ -500,6 +618,7 @@
       els.recBtn.textContent = "● Record";
       recording = false;
       assistantStreamEl = null;
+      appliedThink = null;
       setMethodSelectorsEnabled(true);
       try { if (captureNode) { captureNode.disconnect(); captureNode.onaudioprocess = null; } } catch (e) {}
       try { if (sourceNode) sourceNode.disconnect(); } catch (e) {}
@@ -512,6 +631,9 @@
     els.endBtn.addEventListener("click", endCall);
     els.recBtn.addEventListener("click", toggleRecording);
     els.selPipeline.addEventListener("change", updatePipelineUI);
+    els.selListen.addEventListener("change", updateBadges);
+    els.selSpeak.addEventListener("change", updateBadges);
+    els.selThink.addEventListener("change", updateBadges);
     updatePipelineUI();
 
     // Select an option by value, creating it if the server uses a value not in the list.
@@ -534,9 +656,11 @@
         const res = await fetch(base + "health");
         if (!res.ok) return;
         const cfg = await res.json();
+        serverCfg = cfg;
         if (cfg.transcription_model) selectOrAdd(els.selListen, cfg.transcription_model);
         if (cfg.voice) selectOrAdd(els.selSpeak, cfg.voice, VOICE_LANG[cfg.voice] || cfg.voice);
         if (cfg.model) selectOrAdd(els.selThink, cfg.model);
+        updateBadges();
       } catch (e) { /* keep dropdown defaults on failure */ }
     }
     initFromServer();
