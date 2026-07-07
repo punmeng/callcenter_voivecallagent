@@ -14,6 +14,7 @@ STT benchmark method alignment with UC3, phrase-list/normalization improvements,
 ### Changed
 
 - STT benchmark output folder `reports/benchmarks` → `reports/stt_benchmarks`.
+- **`reports/` reorganized into category folders**: UC1 quality-check reports now live under `reports/quality_checks/` (new `OUTPUT_DIR` default) alongside `stt_benchmarks/`, `tts_benchmarks/`, and `screenshots/`. Removed duplicate `spec/` architecture images (kept `VoiceQA_Architecture-v1.png` + `Voice_Method_Selection.png`).
 - UC3 status-bar badges now reflect the current selection before a call; MAI voices are hidden on the all-in-one `voicelive` pipeline.
 - Quieted noisy `azure.identity` credential-chain INFO logs on UC3 startup.
 

@@ -31,7 +31,7 @@ No conversation, no cross-call memory. Recommended runtime: a serverless batch j
 - **Blob Reader** — pulls a single blob or a prefix batch; loads rubric JSON; `call_id` = blob name without extension. Managed Identity preferred; connection string fallback for local dev.
 - **STT (Azure AI Speech, batch)** — batch transcription ($0.18/audio-hr, LID + diarization included). Tuning ladder below. Output: diarized transcript.
 - **QA Judge (Agent Framework)** — one LLM call per rubric item, bounded concurrency (semaphore 4), temperature 0. Verdict per item `{verdict, reason, evidence_quote}`; items 1–3 use `{summary}` (≤20 字).
-- **Markdown Writer** — renders one `.md` per call; writes to output Blob container or local `reports/`.
+- **Markdown Writer** — renders one `.md` per call; writes to output Blob container or local `reports/quality_checks/`.
 
 ### Voice optimization skills (implemented in [../src/voiceqa/uc1_stt_agent.py](../src/voiceqa/uc1_stt_agent.py))
 
@@ -133,7 +133,7 @@ Rubric JSON (`RUBRIC_BLOB_PATH` or `RUBRIC_LOCAL_PATH`):
 }
 ```
 
-Output: local `reports/<call_id>.md`; blob `<call_id>.md`; batch mode also emits `reports/index.md` (+ `index.md` in the output container). Report layout: header table (音檔, 時長, 判定結果 符合/不符合 tally), 摘要 (items 1–3), 評分明細 table (判定/原因/佐證 with ❌ on `不符合`), and an optional 逐字稿 section.
+Output: local `reports/quality_checks/<call_id>.md`; blob `<call_id>.md`; batch mode also emits `reports/quality_checks/index.md` (+ `index.md` in the output container). Report layout: header table (音檔, 時長, 判定結果 符合/不符合 tally), 摘要 (items 1–3), 評分明細 table (判定/原因/佐證 with ❌ on `不符合`), and an optional 逐字稿 section.
 
 ---
 

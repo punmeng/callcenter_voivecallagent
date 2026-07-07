@@ -18,11 +18,14 @@ optional_providers:
   - azure-speech-stt-rest
   - azure-speech-stt-custom
   - gpt-audio-transcribe
-  - voice-live-api
+  - voice-live-realtime-azure-speech
+  - voice-live-realtime-azure-speech-phrase-list
+  - voice-live-realtime-gpt4o-transcribe
+  - voice-live-realtime-gpt4o-transcribe-phrase-list
   - mai-transcribe-1.5
 outputs:
-  - reports/benchmarks/<run-id>/summary.md
-  - reports/benchmarks/<run-id>/<provider>.results.jsonl
+  - reports/stt_benchmarks/<run-id>/summary.md
+  - reports/stt_benchmarks/<run-id>/<provider>.results.jsonl
 selection_rules:
   - prioritize lower WER/CER and higher keyword recall
   - use latency/cost as tie-breakers

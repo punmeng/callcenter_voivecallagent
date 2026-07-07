@@ -1447,7 +1447,7 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         // Benchmark page
         bench_eyebrow: "Benchmark page",
         bench_h2: "Run benchmark and inspect all runs in one place.",
-        bench_lead: "Select a local source folder and one or more STT methods to run benchmark directly from this page. Existing run history under reports/benchmarks is listed below.",
+        bench_lead: "Select a local source folder and one or more STT methods to run benchmark directly from this page. Existing run history under reports/stt_benchmarks is listed below.",
         bench_source_path: "Source path (WAV file or folder)",
         bench_reference_dataset: "Reference dataset JSONL (optional)",
         bench_stt_methods: "STT methods (multi-select)",
@@ -1633,7 +1633,7 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         // Benchmark page
         bench_eyebrow: "基準測試頁面",
         bench_h2: "在一個地方運行基準測試並檢查所有執行。",
-        bench_lead: "選擇本地源資料夾和一個或多個 STT 方法，以直接從此頁面運行基準測試。 reports/benchmarks 下的現有運行歷史列在下方。",
+        bench_lead: "選擇本地源資料夾和一個或多個 STT 方法，以直接從此頁面運行基準測試。 reports/stt_benchmarks 下的現有運行歷史列在下方。",
         bench_source_path: "源路徑（WAV 檔案或資料夾）",
         bench_reference_dataset: "參考數據集 JSONL（可選）",
         bench_stt_methods: "STT 方法（多選）",
@@ -2213,7 +2213,7 @@ def _benchmark_page(
           <h2 data-i18n="bench_h2">Run benchmark and inspect all runs in one place.</h2>
           <p class="lead" data-i18n="bench_lead">
             Select a local source folder and one or more STT methods to run benchmark directly from this page.
-            Existing run history under <code>reports/benchmarks</code> is listed below.
+            Existing run history under <code>reports/stt_benchmarks</code> is listed below.
           </p>
           <form method="post" action="/benchmark/run" style="margin-top:12px;">
             <label for="benchmark_source_path" data-i18n-text="bench_source_path">Source path (WAV file or folder)</label>

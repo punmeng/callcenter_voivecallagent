@@ -10,7 +10,7 @@ Repository organization + module map for contributors.
 | `scripts/` + `start_*.ps1` | Execution wrappers / build scripts. |
 | `docs/` | Architecture, use-case guides, benchmarks, cost, changelog. |
 | `catalog/` | Planning/control plane (see below). |
-| `reports/` | Generated outputs only. |
+| `reports/` | Generated outputs only: `quality_checks/` (UC1 QA reports), `stt_benchmarks/`, `tts_benchmarks/`, `screenshots/`. |
 | `data/` | Benchmark / test datasets. |
 | `assets/` | Prompts, phrase list, corrections, rubric, UC2/UC3 HTML UIs. |
 

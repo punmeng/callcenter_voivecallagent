@@ -82,7 +82,7 @@ def load_settings() -> Settings:
         local_audio_dir=Path(os.getenv("LOCAL_AUDIO_DIR")) if os.getenv("LOCAL_AUDIO_DIR") else None,
         rubric_blob_path=os.getenv("RUBRIC_BLOB_PATH", "rubric/rubric.json"),
         rubric_local_path=Path(os.getenv("RUBRIC_LOCAL_PATH")) if os.getenv("RUBRIC_LOCAL_PATH") else None,
-        output_dir=Path(os.getenv("OUTPUT_DIR", "reports")),
+        output_dir=Path(os.getenv("OUTPUT_DIR", "reports/quality_checks")),
         output_to_blob=_bool_env("OUTPUT_TO_BLOB", True),
         include_transcript=_bool_env("INCLUDE_TRANSCRIPT", True),
         judge_concurrency=int(os.getenv("JUDGE_CONCURRENCY", "4")),
