@@ -160,7 +160,7 @@ UC1_FOUNDRY_AGENT_NAME=voicecall-uc1-judge
 UC1_FOUNDRY_AGENT_VERSION=<new-version>
 ```
 
-**Verify:** `.\start_uc1.ps1` → UC1 completes, `reports/002.metrics.json` shows non-zero `token_usage`, portal shows agent activity.
+**Verify:** `.\start_uc1.ps1` → UC1 completes, `reports/quality_checks/002.metrics.json` shows non-zero `token_usage`, portal shows agent activity.
 
 **Optional overrides:**
 ```powershell

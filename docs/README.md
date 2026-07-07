@@ -70,6 +70,7 @@ All three share a common **Azure speech stack + Agent Framework runtime** founda
 | [BENCHMARKS.md](BENCHMARKS.md) | STT + TTS benchmark guides. |
 | [COST.md](COST.md) | Monthly cost estimate + optimization for all cases. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Repo/catalog organization + module map. |
+| [TEST_CASES.md](TEST_CASES.md) | Manual / automated test cases per use case + benchmarks. |
 | [CHANGELOG.md](CHANGELOG.md) | Version history. |
 
 ## Key files

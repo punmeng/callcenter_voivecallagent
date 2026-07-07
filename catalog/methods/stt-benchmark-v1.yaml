@@ -21,7 +21,6 @@ optional_providers:
   - voice-live-realtime-azure-speech
   - voice-live-realtime-azure-speech-phrase-list
   - voice-live-realtime-gpt4o-transcribe
-  - voice-live-realtime-gpt4o-transcribe-phrase-list
   - mai-transcribe-1.5
 outputs:
   - reports/stt_benchmarks/<run-id>/summary.md

@@ -276,7 +276,7 @@ Steps:
 
 Expected:
 - Conversation works without Voice Live session dependency.
-- Listen/Think selectors are disabled in UI for classic.
+- In classic, the Listen selector is limited to azure-speech and the Think selector is disabled.
 
 ### TC-UC3-005 Recording controls
 

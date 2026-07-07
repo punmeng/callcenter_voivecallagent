@@ -8,7 +8,7 @@ Repository organization + module map for contributors.
 |---|---|
 | `src/voiceqa/` | Implementation code. |
 | `scripts/` + `start_*.ps1` | Execution wrappers / build scripts. |
-| `docs/` | Architecture, use-case guides, benchmarks, cost, changelog. |
+| `docs/` | Architecture, use-case guides, benchmarks, cost, test cases, changelog. |
 | `catalog/` | Planning/control plane (see below). |
 | `reports/` | Generated outputs only: `quality_checks/` (UC1 QA reports), `stt_benchmarks/`, `tts_benchmarks/`, `screenshots/`. |
 | `data/` | Benchmark / test datasets. |

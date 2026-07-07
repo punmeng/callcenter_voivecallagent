@@ -20,4 +20,6 @@ This folder is a lightweight control plane for scaling VoiceCall Verify beyond U
 
 - `uc1-quality-check` (batch QA report)
 - `uc2-realtime-assistant` (live call assist)
+- `uc3-voice-live-call` (automated voice agent)
 - `stt-benchmark-v1` (cross-provider STT benchmark)
+- `tts-benchmark-v1` (cross-provider TTS benchmark)

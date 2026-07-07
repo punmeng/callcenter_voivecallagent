@@ -764,6 +764,7 @@ async def _handle_voice_ws(websocket: WebSocket, external_tts: bool = False) -> 
         from azure.ai.voicelive.aio import ConnectionClosed, connect
         from azure.ai.voicelive.models import (
             AudioInputTranscriptionOptions,
+            AzureSemanticVad,
             FunctionTool,
             Modality,
             InputAudioFormat,
@@ -907,6 +908,25 @@ async def _handle_voice_ws(websocket: WebSocket, external_tts: bool = False) -> 
             api_version=api_version,
             model=model,
         ) as connection:
+            # Voice Live requires an Azure semantic VAD when the input transcription model
+            # is azure-speech; other transcription models (gpt-4o-transcribe, etc.) use
+            # ServerVad. Both keep create_response + interrupt_response for barge-in.
+            if transcription_model.strip().lower() == "azure-speech":
+                turn_detection: Any = AzureSemanticVad(
+                    threshold=0.5,
+                    prefix_padding_ms=300,
+                    silence_duration_ms=500,
+                    create_response=True,
+                    interrupt_response=True,
+                )
+            else:
+                turn_detection = ServerVad(
+                    threshold=0.5,
+                    prefix_padding_ms=300,
+                    silence_duration_ms=500,
+                    create_response=True,
+                    interrupt_response=True,
+                )
             try:
                 await connection.session.update(
                     session=RequestSession(
@@ -925,13 +945,7 @@ async def _handle_voice_ws(websocket: WebSocket, external_tts: bool = False) -> 
                             model=transcription_model,
                             language=_resolve_transcription_language(),
                         ),
-                        turn_detection=ServerVad(
-                            threshold=0.5,
-                            prefix_padding_ms=300,
-                            silence_duration_ms=500,
-                            create_response=True,
-                            interrupt_response=True,
-                        ),
+                        turn_detection=turn_detection,
                         tools=[billing_tool, it_tool, expert_tool],
                         tool_choice="auto",
                         temperature=0.7,

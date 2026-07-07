@@ -42,7 +42,6 @@ def parse_args() -> argparse.Namespace:
             "voice-live-realtime-azure-speech",
             "voice-live-realtime-azure-speech-phrase-list",
             "voice-live-realtime-gpt4o-transcribe",
-            "voice-live-realtime-gpt4o-transcribe-phrase-list",
             "voice-live-api-gpt-4o-transcribe",
             "voice-live-api-mai-transcribe-1",
         ],

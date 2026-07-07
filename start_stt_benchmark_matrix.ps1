@@ -67,7 +67,6 @@ if ($IncludeVoiceLive) {
     $providers += 'voice-live-realtime-azure-speech'
     $providers += 'voice-live-realtime-azure-speech-phrase-list'
     $providers += 'voice-live-realtime-gpt4o-transcribe'
-    $providers += 'voice-live-realtime-gpt4o-transcribe-phrase-list'
 }
 
 if ($IncludeGptTranscribe) {

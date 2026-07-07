@@ -1828,15 +1828,6 @@ def build_provider(name: str) -> SttProvider:
             use_phrase_list=True,
             timeout_seconds_override=float(os.getenv("VOICE_LIVE_GPT_REALTIME_TIMEOUT_SECONDS", "45")),
         )
-    if normalized == "voice-live-realtime-gpt4o-transcribe-phrase-list":
-        # Same as voice-live-realtime-gpt4o-transcribe but with Voice Live phrase-list hints.
-        return VoiceLiveProvider(
-            provider_name="voice-live-realtime-gpt4o-transcribe-phrase-list",
-            model_override=(os.getenv("UC3_VOICE_LIVE_MODEL") or "gpt-realtime").strip(),
-            transcription_model_override="gpt-4o-transcribe",
-            use_phrase_list=True,
-            timeout_seconds_override=float(os.getenv("VOICE_LIVE_GPT_REALTIME_TIMEOUT_SECONDS", "45")),
-        )
     if normalized == "voice-live-api-gpt-4o-transcribe":
         # gpt-4o-transcribe input transcription is not valid for some cascaded pipelines (e.g., gpt-5.4).
         # Use a dedicated real-time model unless explicitly overridden.

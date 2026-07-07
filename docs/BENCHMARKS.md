@@ -16,7 +16,9 @@ Compares transcript quality/latency/cost across providers:
 - `gpt-audio-transcribe`
 - Voice Live (all use a `gpt-realtime` session — mirror UC3 pipelines 1/2, split by transcription model):
   - `voice-live-realtime-azure-speech` and `voice-live-realtime-azure-speech-phrase-list`
-  - `voice-live-realtime-gpt4o-transcribe` and `voice-live-realtime-gpt4o-transcribe-phrase-list`
+  - `voice-live-realtime-gpt4o-transcribe`
+
+> **Phrase-list support:** Voice Live only accepts `phrase_list` hints for the `azure-speech`, `azure-mrs`, `mai-transcribe`, `mai-transcribe-1.5`, and `azure-fast-transcription` transcription models. `gpt-4o-transcribe` does **not** support phrase lists, so there is no `voice-live-realtime-gpt4o-transcribe-phrase-list` method — only the plain `voice-live-realtime-gpt4o-transcribe` variant is available.
 
 Metrics per provider: WER, CER, keyword recall, average latency, and a **weighted decision score** (default `70%` raw accuracy, `20%` latency, `10%` estimated cost). `summary.md` also appends an audio cost estimate.
 

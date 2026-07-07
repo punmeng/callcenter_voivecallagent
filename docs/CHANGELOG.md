@@ -6,8 +6,8 @@ STT benchmark method alignment with UC3, phrase-list/normalization improvements,
 
 ### Added
 
-- **Voice Live STT benchmark methods aligned to UC3** (all use a `gpt-realtime` session): `voice-live-realtime-azure-speech` (UC3 pipeline 1) and `voice-live-realtime-gpt4o-transcribe` (UC3 pipeline 2), each with a `-phrase-list` variant that passes domain hints via Voice Live `AudioInputTranscriptionOptions.phrase_list`. Legacy `voice-live-api` / `voice-live-api-gpt-realtime` IDs kept as aliases.
-- **Dashboard STT benchmark**: WAV multi-select (choose which clips to compare) and best = green / worst = red per-metric coloring across the compared methods.
+- **Voice Live STT benchmark methods aligned to UC3** (all use a `gpt-realtime` session): `voice-live-realtime-azure-speech` (UC3 pipeline 1, with a `-phrase-list` variant that passes domain hints via Voice Live `AudioInputTranscriptionOptions.phrase_list`) and `voice-live-realtime-gpt4o-transcribe` (UC3 pipeline 2). `gpt-4o-transcribe` does not support phrase lists, so it has no `-phrase-list` variant. Legacy `voice-live-api` / `voice-live-api-gpt-realtime` IDs kept as aliases.
+- **Dashboard STT benchmark**: WAV multi-select (choose which clips to compare), best = green / worst = red per-metric coloring across the compared methods, cleaner two-line method labels with a phrase-list pill, and a **Delete old reports** button that clears `reports/stt_benchmarks`.
 - **UC3 MAI-Voice-2 voices**: `en-US-Harper:MAI-Voice-2` and `zh-CN-Mei:MAI-Voice-2` (Simplified-Mandarin) in the Speaker dropdown — available on the `voicelive-tts` and `classic` pipelines; classic Listen is now selectable (azure-speech).
 - **Simplified→Traditional normalization** (OpenCC `s2t`, `opencc-python-reimplemented`) applied to reference + hypothesis so engines that emit Simplified (e.g. `gpt-4o-transcribe`) aren't penalized against zh-TW references. Disable with `STT_BENCHMARK_ZH_TO_TRADITIONAL=0`.
 
@@ -23,6 +23,8 @@ STT benchmark method alignment with UC3, phrase-list/normalization improvements,
 - Voice Live STT now uses `AzureSemanticVad` when the transcription model is `azure-speech` (Voice Live rejects `ServerVad` in that case).
 - Voice Live STT captures only the final `input_audio_transcription.completed` transcript — no more duplicated "partial + final" output for streaming models like `gpt-4o-transcribe`.
 - `mai-transcribe-1.5` auto-falls-back to standard fast transcription when the resource rejects enhanced mode, instead of returning an empty result.
+- Removed the invalid `voice-live-realtime-gpt4o-transcribe-phrase-list` method (Voice Live rejects `phrase_list` for `gpt-4o-transcribe`, so it always returned empty results).
+- Dashboard "Details" now opens for Voice Live methods — the per-sample lookup matches the bare provider name instead of the verbose `summary.md` display label.
 
 ## v1.1.0 - 2026-07-06
 

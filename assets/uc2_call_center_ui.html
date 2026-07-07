@@ -387,21 +387,21 @@
         <button class="lang-btn" id="langBtnZh" data-lang="zh">繁體中文</button>
       </div>
       <div class="status-row">
-        <div id="sttMethod" class="stt-method"><strong>STT:</strong> <span id="sttMethodLabel">Web Speech</span></div>
+        <div id="sttMethod" class="stt-method"><strong>STT:</strong> <span id="sttMethodLabel">Azure Speech</span></div>
         <div id="connStatus" class="status">Disconnected</div>
         <div id="assistStatus" class="status warn">Waiting</div>
       </div>
     </header>
 
     <section class="hero">
-      <h1 id="heroTitle">Hi Alex, try asking "What can you do?"</h1>
+      <h1 id="heroTitle">Real-time Call Assistant</h1>
       <div class="search-shell">
         <div class="search-hint" id="hint1">Ask UC2 Copilot: live coaching, compliance reminders, and post-call summary.</div>
         <div class="search-hint" id="hint2">Use the controls below to connect, start the microphone, and receive guidance cards during calls.</div>
       </div>
       <div class="hero-pills">
-        <span class="hero-pill" id="pill1">Company</span>
-        <span class="hero-pill" id="pill2">Explore</span>
+        <span class="hero-pill" id="pill1">Live coaching</span>
+        <span class="hero-pill" id="pill2">Compliance</span>
       </div>
     </section>
 
@@ -447,7 +447,7 @@
           </div>
 
           <div class="tips" id="tipText">
-            Browser mic uses Web Speech API. If unsupported, use manual transcript input.
+            Microphone audio streams to Azure Speech. If the mic is unavailable, use manual transcript input.
           </div>
 
           <h3 class="section-title" id="transcriptTitle">Live Transcript</h3>
@@ -496,11 +496,11 @@
     // i18n translations
     const i18n = {
       en: {
-        heroTitle: "Hi Alex, try asking \"What can you do?\"",
-        hint1: "Ask UC2 Copilot: live coaching, compliance reminders, and post-call summary.",
+        heroTitle: "Real-time Call Assistant",
+        hint1: "Live agent copilot: coaching, compliance reminders, and post-call summary.",
         hint2: "Use the controls below to connect, start the microphone, and receive guidance cards during calls.",
-        pill1: "Company",
-        pill2: "Explore",
+        pill1: "Live coaching",
+        pill2: "Compliance",
         ctrlTitle: "Call Controls",
         connectBtn: "Connect",
         disconnectBtn: "Disconnect",
@@ -522,16 +522,16 @@
         sessionIdPlaceholder: "Session ID",
         speechLangPlaceholder: "Speech language (e.g. zh-TW)",
         manualTextPlaceholder: "Manual transcript input (optional)",
-        sttWebSpeech: "Web Speech",
+        sttWebSpeech: "Azure Speech",
         speakerAgent: "Agent",
         speakerCustomer: "Customer"
       },
       zh: {
-        heroTitle: "嗨 Alex，試試問\"你能做什麼?\"",
-        hint1: "詢問 UC2 副駕駛：即時教練、合規提醒和通話後摘要。",
+        heroTitle: "即時通話輔助",
+        hint1: "即時通話輔助：教練、合規提醒與通話後摘要。",
         hint2: "使用下方的控制項連接、啟動麥克風並在通話期間接收指導卡片。",
-        pill1: "公司",
-        pill2: "探索",
+        pill1: "即時教練",
+        pill2: "合規",
         ctrlTitle: "通話控制",
         connectBtn: "連接",
         disconnectBtn: "斷開",
@@ -548,12 +548,12 @@
         runtimeLabel: "執行時間模型",
         tokenLabel: "令牌指標",
         footerText: "技術支援：Microsoft Innovation Hub",
-        tipText: "啟動麥克風會將語音串流至 Azure Speech 進行自動者辨識（專員 vs 客戶）。若兩方顓倒請按交換。手動輸入使用說話者下拉選單。",
+        tipText: "啟動麥克風會將語音串流至 Azure Speech 進行自動說話者辨識（專員 vs 客戶）。若兩方顛倒請按交換。手動輸入使用說話者下拉選單。",
         callIdPlaceholder: "通話 ID",
         sessionIdPlaceholder: "工作階段 ID",
         speechLangPlaceholder: "語音語言 (例如 zh-TW)",
         manualTextPlaceholder: "手動記錄輸入 (選用)",
-        sttWebSpeech: "網頁語音",
+        sttWebSpeech: "Azure Speech",
         speakerAgent: "專員",
         speakerCustomer: "客戶"
       }
@@ -766,7 +766,7 @@
       ws.send(JSON.stringify({
         session_id: sessionId.value.trim(),
         call_id: callId.value.trim(),
-        speech_model: `Browser Web Speech API (${langInput.value.trim() || 'zh-TW'})`,
+        speech_model: `Azure Speech Diarization (${langInput.value.trim() || 'zh-TW'})`,
         speech_language: langInput.value.trim() || 'zh-TW',
         ...payload,
       }));

@@ -6,7 +6,7 @@
 
 ---
 
-## Verified unit rates (2026-06-02)
+## Verified unit rates (2026-07-06)
 
 | Service | Item | Rate |
 |---|---|---|

@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import traceback
 from dataclasses import dataclass
 from datetime import datetime
@@ -67,7 +68,7 @@ _HOME_NAME_EN = {
 _HOME_DESC_EN = {
     "uc1": "Offline batch quality check — transcribe recorded calls and score them against a rubric into a Markdown QA report.",
     "uc2": "Live agent copilot — surfaces next-best-action, compliance, and answer cards in real time during a call.",
-    "uc3": "Fully automated AI voice agent that talks to the caller (speech-to-speech) and escalates specific inquiries to an expert agent.",
+    "uc3": "Fully automated AI voice agent that talks to the caller (speech-to-speech) and escalates specific inquiries to billing, IT, or expert agents.",
     "benchmark": "Compare STT models for accuracy, latency, and cost across multiple providers.",
     "tts-benchmark": "Compare TTS voices for latency and real-time factor, keeping the generated audio for listening review.",
 }
@@ -92,8 +93,27 @@ _BENCHMARK_SUPPORTED_PROVIDERS = [
     "voice-live-realtime-azure-speech",
     "voice-live-realtime-azure-speech-phrase-list",
     "voice-live-realtime-gpt4o-transcribe",
-    "voice-live-realtime-gpt4o-transcribe-phrase-list",
 ]
+
+# STT providers that send a phrase list (used to render a phrase-list pill in the UI).
+_PHRASE_LIST_PROVIDERS = {
+    "azure-speech-stt",
+    "azure-speech-stt-fast-phrase-list",
+    "azure-speech-stt-custom",
+    "voice-live-realtime-azure-speech-phrase-list",
+}
+
+
+def _phrase_list_pill(provider_id: str) -> str:
+    """Small colored pill showing whether a provider uses the phrase list."""
+    on = provider_id in _PHRASE_LIST_PROVIDERS
+    color = "#22c55e" if on else "#8b8b9a"
+    bg = "rgba(34,197,94,.15)" if on else "rgba(139,139,154,.15)"
+    text = "phrase list ✓" if on else "no phrase list"
+    return (
+        f"<span style=\"font-size:.7em; font-weight:600; color:{color}; background:{bg}; "
+        f"padding:2px 8px; border-radius:999px; white-space:nowrap;\">{text}</span>"
+    )
 
 
 @dataclass
@@ -181,13 +201,13 @@ _USE_CASE_CARDS = [
         name="UC3 Voice Live Call (gpt-realtime + TTS)",
         short_name="UC3",
         summary="Fully automated AI voice agent that talks to the caller.",
-        value="A speech-to-speech voice bot on Azure AI Voice Live (gpt-realtime): it listens, understands, and replies in voice, and hands specific inquiries (billing, account, payment, order-status) to an expert agent before speaking the answer back.",
+        value="A speech-to-speech voice bot on Azure AI Voice Live (gpt-realtime): it listens, understands, and replies in voice, and routes specific inquiries to billing, IT, or expert Foundry agents before speaking the answer back.",
         route="/uc3",
         voice_model="Azure AI Voice Live (gpt-realtime) + neural/OpenAI TTS voice",
         details=[
             "Streams microphone audio to Voice Live and plays synthesized replies in the browser.",
             "Native STT + LLM + TTS in one realtime session with server-side turn detection.",
-            "Escalates specific questions to a Foundry expert agent via function calling, then reads the answer aloud.",
+            "Escalates specific questions to Foundry billing, IT, or expert agents via function calling, then reads the answer aloud.",
         ],
         actions=[
             ("Open voice call", "/uc3/live"),
@@ -200,7 +220,7 @@ _USE_CASE_CARDS = [
         summary="Compare STT accuracy, latency, and cost across multiple providers.",
         value="Lets you compare Azure Speech, MAI-Transcribe, GPT audio transcription, and Voice Live variants from a single benchmark page.",
         route="/benchmark",
-        voice_model="azure-speech-stt, azure-speech-stt-fast, azure-speech-stt-rest, mai-transcribe-1.5, gpt-audio-transcribe, voice-live-api",
+        voice_model="azure-speech-stt, azure-speech-stt-fast, azure-speech-stt-rest, mai-transcribe-1.5, gpt-audio-transcribe, voice-live-realtime-azure-speech, voice-live-realtime-gpt4o-transcribe",
         details=[
             "Reads benchmark runs from reports/stt_benchmarks.",
             "Shows provider averages for WER, CER, keyword recall, latency, and audio cost.",
@@ -639,7 +659,12 @@ def _benchmark_provider_rows_html(
             + cell("avg_latency_ms", float(r.get("avg_latency_ms", 0.0) or 0.0), ".2f")
         )
         if with_details:
-            prov_json = escape(json.dumps(str(r.get("provider", ""))), quote=True)
+            # summary.md shows a verbose display name for Voice Live providers
+            # (e.g. "...-phrase-list (session=..., phrase_list=on)"); the details are
+            # keyed by the bare provider name (the .results.jsonl file stem), so strip
+            # anything from the first " (" to match.
+            provider_key = str(r.get("provider", "")).split(" (", 1)[0].strip()
+            prov_json = escape(json.dumps(provider_key), quote=True)
             row_html += (
                 "<td><button style=\"background:rgba(167,139,250,.18); color:#c4b5fd; "
                 "border:1px solid rgba(167,139,250,.45); border-radius:999px; padding:6px 12px; "
@@ -1410,7 +1435,7 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         home_name_tts_benchmark: "TTS Benchmark",
         home_desc_uc1: "Offline batch quality check — transcribe recorded calls and score them against a rubric into a Markdown QA report.",
         home_desc_uc2: "Live agent copilot — surfaces next-best-action, compliance, and answer cards in real time during a call.",
-        home_desc_uc3: "Fully automated AI voice agent that talks to the caller (speech-to-speech) and escalates specific inquiries to an expert agent.",
+        home_desc_uc3: "Fully automated AI voice agent that talks to the caller (speech-to-speech) and escalates specific inquiries to billing, IT, or expert agents.",
         home_desc_benchmark: "Compare STT models for accuracy, latency, and cost across multiple providers.",
         home_desc_tts_benchmark: "Compare TTS voices for latency and real-time factor, keeping the generated audio for listening review.",
         home_stats_uc1: "UC1",
@@ -1454,6 +1479,7 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         bench_btn_run: "Run benchmark",
         bench_btn_script: "Open run script guide",
         bench_btn_home: "Back home",
+        bench_btn_delete: "Delete old reports",
         bench_latest_rec: "Latest recommendation",
         bench_no_rec: "No recommendation yet.",
         bench_latest_run: "Latest run",
@@ -1493,7 +1519,7 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         uc3_what_does: "What this use case does",
         uc1_lead: "Offline batch QA: turn recorded calls into scored Markdown reports with rubric evidence and phrase boosting.",
         uc2_lead: "Live coaching: surface next-best-action, compliance, and answer cards in real time while tracking token usage.",
-        uc3_lead: "A fully automated AI voice agent that talks to the caller — it listens, understands, replies in voice, and escalates specific inquiries to an expert agent.",
+        uc3_lead: "A fully automated AI voice agent that talks to the caller — it listens, understands, replies in voice, and escalates specific inquiries to billing, IT, or expert agents.",
         uc1_b1: "Reads audio from Blob Storage or local files and transcribes with Azure Speech.",
         uc1_b2: "Applies phrase-list boosting and post-STT corrections for domain terms.",
         uc1_b3: "Scores the transcript against rubric rules and writes Markdown + JSON.",
@@ -1502,7 +1528,7 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         uc2_b3: "Reports STT mode, LLM mode, token usage, and call audio duration.",
         uc3_b1: "Speech-to-speech: the AI agent talks directly to the caller in real time.",
         uc3_b2: "Open the voice call and speak into your microphone.",
-        uc3_b3: "Specific inquiries route to an expert agent, then are spoken back as TTS.",
+        uc3_b3: "Specific inquiries route to billing, IT, or expert agents, then are spoken back as TTS.",
         btn_open_live: "Open live console",
         btn_open_voice: "Open voice call",
         btn_open_benchmark: "Open benchmark page",
@@ -1640,6 +1666,7 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         bench_btn_run: "運行基準測試",
         bench_btn_script: "打開運行指令碼指南",
         bench_btn_home: "返回首頁",
+        bench_btn_delete: "刪除舊報告",
         bench_latest_rec: "最新建議",
         bench_no_rec: "尚無建議。",
         bench_latest_run: "最新運行",
@@ -1985,13 +2012,13 @@ def _use_case_page(card: UseCaseCard) -> str:
         "uc3": [
             "Speech-to-speech: the AI agent talks directly to the caller in real time.",
             "Open the voice call and speak into your microphone.",
-            "Specific inquiries route to an expert agent, then are spoken back as TTS.",
+            "Specific inquiries route to billing, IT, or expert agents, then are spoken back as TTS.",
         ],
     }.get(card.id, [])
     lead_en = {
         "uc1": "Offline batch QA: turn recorded calls into scored Markdown reports with rubric evidence and phrase boosting.",
         "uc2": "Live coaching: surface next-best-action, compliance, and answer cards in real time while tracking token usage.",
-        "uc3": "A fully automated AI voice agent that talks to the caller — it listens, understands, replies in voice, and escalates specific inquiries to an expert agent.",
+        "uc3": "A fully automated AI voice agent that talks to the caller — it listens, understands, replies in voice, and escalates specific inquiries to billing, IT, or expert agents.",
     }.get(card.id, card.value)
 
     details_html = "".join(
@@ -2096,9 +2123,13 @@ def _benchmark_page(
     ) or "<tr><td colspan='5' class='muted'>No audio files found in the selected path.</td></tr>"
 
     provider_checkboxes = "".join(
-        f"<label style=\"display:inline-flex; align-items:center; gap:8px; margin:4px 12px 4px 0;\">"
-        f"<input type=\"checkbox\" name=\"providers\" value=\"{escape(provider_id)}\"{' checked' if provider_id in selected_providers else ''} />"
-        f"<span>{escape(provider_to_display_label(provider_id))} ({escape(provider_id)})</span>"
+        "<label style=\"display:flex; align-items:flex-start; gap:10px; padding:8px 11px; "
+        "border:1px solid rgba(255,255,255,.09); border-radius:10px; margin:6px 0; cursor:pointer;\">"
+        f"<input type=\"checkbox\" name=\"providers\" value=\"{escape(provider_id)}\"{' checked' if provider_id in selected_providers else ''} style=\"margin-top:4px;\" />"
+        "<span style=\"display:flex; flex-direction:column; gap:3px; min-width:0;\">"
+        f"<span style=\"font-weight:600;\">{escape(provider_to_display_label(provider_id))} {_phrase_list_pill(provider_id)}</span>"
+        f"<span style=\"font-size:.76em; color:#8b8b9a; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;\">{escape(provider_id)}</span>"
+        "</span>"
         "</label>"
         for provider_id in provider_ids
     )
@@ -2231,8 +2262,10 @@ def _benchmark_page(
             <div class="cta-row">
               <button class="btn primary" type="submit" data-i18n-text="bench_btn_run">Run benchmark</button>
               <a class="btn" href="/benchmark/script" data-i18n-text="bench_btn_script">Open run script guide</a>
-              <a class="btn" href="/" data-i18n-text="bench_btn_home">Back home</a>
             </div>
+          </form>
+          <form method="post" action="/benchmark/delete-reports" style="margin-top:8px;" onsubmit="return confirm('Delete ALL existing STT benchmark reports under reports/stt_benchmarks? This cannot be undone.');">
+            <button class="btn" type="submit" style="border-color:rgba(239,68,68,.55); color:#fca5a5;" data-i18n-text="bench_btn_delete">Delete old reports</button>
           </form>
         </div>
         <div class="panel">
@@ -2760,6 +2793,33 @@ async def _benchmark_run(request: Request) -> HTMLResponse:
   )
 
 
+async def _benchmark_delete_reports(_: Request) -> HTMLResponse:
+  """Delete all existing STT benchmark run reports under reports/stt_benchmarks."""
+  deleted = 0
+  errors: list[str] = []
+  try:
+    if _BENCHMARK_ROOT.exists():
+      for child in _BENCHMARK_ROOT.iterdir():
+        if child.name == ".gitkeep":
+          continue
+        try:
+          if child.is_dir():
+            shutil.rmtree(child)
+          else:
+            child.unlink()
+          deleted += 1
+        except Exception as exc:
+          errors.append(f"{child.name}: {exc}")
+    if errors:
+      message = f"Deleted {deleted} report(s); some could not be removed: {'; '.join(errors)}"
+    else:
+      message = f"Deleted {deleted} old benchmark report(s) under reports/stt_benchmarks."
+  except Exception as exc:
+    message = f"Failed to delete reports: {exc}"
+
+  return HTMLResponse(_benchmark_page(message=message))
+
+
 async def _benchmark_script(_: Request) -> HTMLResponse:
     body = """
     <section class="hero">
@@ -2952,6 +3012,7 @@ def create_app() -> InvocationAgentServerHost:
         Route("/uc3", _uc3, methods=["GET"], name="uc3"),
         Route("/benchmark", _benchmark, methods=["GET"], name="benchmark"),
         Route("/benchmark/run", _benchmark_run, methods=["POST"], name="benchmark_run"),
+        Route("/benchmark/delete-reports", _benchmark_delete_reports, methods=["POST"], name="benchmark_delete_reports"),
         Route("/benchmark/script", _benchmark_script, methods=["GET"], name="benchmark_script"),
         Route("/tts-benchmark", _tts_benchmark, methods=["GET"], name="tts_benchmark"),
         Route("/tts-benchmark/run", _tts_benchmark_run, methods=["POST"], name="tts_benchmark_run"),
