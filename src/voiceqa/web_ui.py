@@ -1053,6 +1053,39 @@ _TUNING_INSTRUCTIONS = (
 )
 
 
+def _domain_glossary_terms() -> list[str]:
+    """Canonical domain terms (from corrections.json keys) that the LLM should
+    map phonetic mishearings back to, e.g. 'Hardware RD', '貨況', '遠傳'."""
+    try:
+        path = Path(load_settings().corrections_path)
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    seen: list[str] = []
+    for key in data.keys():
+        term = str(key).strip()
+        if term and term not in seen:
+            seen.append(term)
+    return seen
+
+
+def _build_tuning_instructions() -> str:
+    """Base tuning instructions plus a domain glossary so the LLM corrects
+    domain jargon (e.g. '號位RD'/'哈維亞比較' -> 'Hardware RD') reliably."""
+    terms = _domain_glossary_terms()
+    if not terms:
+        return _TUNING_INSTRUCTIONS
+    glossary = ", ".join(terms[:80])
+    return (
+        _TUNING_INSTRUCTIONS
+        + "\nDomain glossary — if the transcript contains a phonetic or garbled mishearing "
+        "of any of these, correct it to the exact canonical form (do not otherwise force "
+        "them in): " + glossary + "."
+    )
+
+
 def _build_tuning_agent(settings: Settings) -> Any:
     """Build an LLM agent used for meaning-based transcript correction.
 
@@ -1062,11 +1095,12 @@ def _build_tuning_agent(settings: Settings) -> Any:
     tuning_agent_name = (os.getenv("STT_TUNING_AGENT_NAME") or "").strip()
     tuning_agent_version = (os.getenv("STT_TUNING_AGENT_VERSION") or "").strip() or None
     model_deployment = (settings.foundry_model_deployment_name or "").strip()
+    instructions = _build_tuning_instructions()
 
     if endpoint and tuning_agent_name:
         return build_foundry_agent(
             name="VoiceCall STT Tuning",
-            instructions=_TUNING_INSTRUCTIONS,
+            instructions=instructions,
             project_endpoint=endpoint,
             agent_name=tuning_agent_name,
             agent_version=tuning_agent_version,
@@ -1074,14 +1108,14 @@ def _build_tuning_agent(settings: Settings) -> Any:
     if endpoint and model_deployment:
         return build_foundry_agent(
             name="VoiceCall STT Tuning",
-            instructions=_TUNING_INSTRUCTIONS,
+            instructions=instructions,
             project_endpoint=endpoint,
             model=model_deployment,
         )
     if settings.aoai_endpoint:
         return build_azure_openai_agent(
             name="VoiceCall STT Tuning",
-            instructions=_TUNING_INSTRUCTIONS,
+            instructions=instructions,
             model=settings.aoai_deployment,
             azure_endpoint=settings.aoai_endpoint.strip().rstrip("/"),
             api_version=settings.aoai_api_version,
@@ -1126,6 +1160,7 @@ async def _tune_provider_transcripts(run_id: str, provider: str) -> dict[str, An
     async def _tune_one(row: dict[str, Any]) -> dict[str, Any]:
         reference = str(row.get("reference_text") or "")
         hypothesis = str(row.get("hypothesis_text") or "")
+        rule_hint = str(row.get("corrected_hypothesis_text") or "")
         keywords = row.get("keywords") if isinstance(row.get("keywords"), list) else []
         raw_wer = float(row.get("wer") or 0.0)
         raw_cer = float(row.get("cer") or 0.0)
@@ -1134,11 +1169,20 @@ async def _tune_provider_transcripts(run_id: str, provider: str) -> dict[str, An
         error = ""
         if hypothesis.strip():
             try:
-                async with semaphore:
-                    response = await agent.run(
-                        "Correct this STT transcript to its most likely intended meaning.\n"
-                        f"Transcript: {hypothesis}"
+                # Feed the RAW transcript (preserves phonetic evidence) plus the
+                # deterministic dictionary output as a non-binding hint, so the LLM
+                # has both signals without inheriting rule-based mistakes.
+                prompt = (
+                    "Correct this STT transcript to its most likely intended meaning.\n"
+                    f"Raw transcript: {hypothesis}"
+                )
+                if rule_hint.strip() and rule_hint.strip() != hypothesis.strip():
+                    prompt += (
+                        f"\nRule-based guess (a hint only — prefer the raw transcript if the "
+                        f"hint looks wrong): {rule_hint}"
                     )
+                async with semaphore:
+                    response = await agent.run(prompt)
                 text = getattr(response, "text", None)
                 tuned_text = (text if isinstance(text, str) else str(response)).strip()
             except Exception as exc:  # noqa: BLE001 - report per-sample, keep others running

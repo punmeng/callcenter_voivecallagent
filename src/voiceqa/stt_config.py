@@ -28,10 +28,9 @@ _UC1_DEFAULT_PROVIDER = "azure-speech-stt"
 _UC2_DEFAULT_PROVIDER = "azure-speech-stt"
 _BENCHMARK_DEFAULT_PROVIDERS: list[str] = [
     "azure-speech-stt",
-    "azure-speech-stt-fast",
     "azure-speech-stt-fast-phrase-list",
-    "azure-speech-stt-rest",
     "mai-transcribe-1.5",
+    "voice-live-realtime-azure-speech-phrase-list",
 ]
 
 # ─── Config dataclasses ───────────────────────────────────────────────────────

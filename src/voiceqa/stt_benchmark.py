@@ -368,7 +368,19 @@ class VoiceLiveProvider(SttProvider):
                         response_done_at = time.perf_counter()
 
                     if event_type == "error":
-                        raise RuntimeError(f"Voice Live server error: {getattr(event, 'error', None)}")
+                        err = getattr(event, "error", None)
+                        err_code = ""
+                        if isinstance(err, dict):
+                            err_code = str(err.get("code") or "")
+                        else:
+                            err_code = str(getattr(err, "code", "") or "")
+                        # With server VAD enabled the server auto-commits the audio
+                        # buffer at end-of-speech, so our explicit commit() can land on
+                        # an already-empty buffer. That's benign — the VAD-committed
+                        # audio is still transcribed — so don't fail the whole sample.
+                        if "commit_empty" in err_code or "buffer too small" in str(err).lower():
+                            continue
+                        raise RuntimeError(f"Voice Live server error: {err}")
 
                     # Per API docs, input transcription can arrive before OR after response events.
                     if transcription_done:

@@ -48,10 +48,9 @@ provider = "azure-speech-stt"
 # or when eval_stt_quality.py is called with no --providers argument.
 default_providers = [
     "azure-speech-stt",
-    "azure-speech-stt-fast",
     "azure-speech-stt-fast-phrase-list",
-    "azure-speech-stt-rest",
     "mai-transcribe-1.5",
+    "voice-live-realtime-azure-speech-phrase-list",
 ]
 
 # Run providers concurrently when -UseConfigDefaults is active (reduces wall-clock time).

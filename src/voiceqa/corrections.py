@@ -7,11 +7,19 @@ from pathlib import Path
 
 class CorrectionEngine:
     def __init__(self, corrections: dict[str, list[str]]) -> None:
-        self._rules: list[tuple[re.Pattern[str], str]] = []
-        for canonical, variants in corrections.items():
-            for variant in variants:
-                pattern = re.compile(re.escape(variant), flags=re.IGNORECASE)
-                self._rules.append((pattern, canonical))
+        # Sort variants longest-first so a broader mishearing (e.g. "哈維亞比較")
+        # is replaced before a shorter prefix of it ("哈維亞比"), which otherwise
+        # leaves trailing garbage (e.g. "...較").
+        pairs: list[tuple[str, str]] = [
+            (variant, canonical)
+            for canonical, variants in corrections.items()
+            for variant in variants
+        ]
+        pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
+        self._rules: list[tuple[re.Pattern[str], str]] = [
+            (re.compile(re.escape(variant), flags=re.IGNORECASE), canonical)
+            for variant, canonical in pairs
+        ]
 
     @classmethod
     def from_file(cls, path: Path) -> "CorrectionEngine":
