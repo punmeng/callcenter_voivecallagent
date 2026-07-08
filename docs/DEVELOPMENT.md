@@ -58,6 +58,7 @@ Repository organization + module map for contributors.
 ## Root files
 
 - `python -m voiceqa.uc1_main` / `uc2_main` / `uc3_main` — launchers (also `start_uc1.ps1` / `start_uc2.ps1` / `start_uc3.ps1`).
+- [DEPLOYMENT.md](DEPLOYMENT.md) — deploy to a new machine (prerequisites + setup).
 - [../.env.example](../.env.example) — sample environment variables.
 - [../requirements.txt](../requirements.txt) — Python dependencies.
 - [../Dockerfile](../Dockerfile) — container image for the hosted agent.

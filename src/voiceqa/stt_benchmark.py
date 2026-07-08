@@ -152,7 +152,16 @@ class VoiceLiveProvider(SttProvider):
             or os.getenv("VOICE_LIVE_TRANSCRIPTION_MODEL")
             or "azure-speech"
         ).strip()
-        self._transcription_language = (os.getenv("VOICE_LIVE_TRANSCRIPTION_LANGUAGE") or "zh-TW").strip()
+        # Azure Speech in Voice Live accepts a comma-separated candidate list (up to 10,
+        # first = primary language) for code-switching, e.g. "zh-TW,en-US". A single value
+        # restricts detection to one locale; an empty value uses the automatic multilingual
+        # model. Default to zh-TW primary + en-US so mixed Chinese/English (e.g.
+        # "我要延長 Hardware RD Drop 時間") is transcribed correctly.
+        raw_language = os.getenv("VOICE_LIVE_TRANSCRIPTION_LANGUAGE")
+        raw_language = raw_language if raw_language is not None else "zh-TW,en-US"
+        self._transcription_language = ",".join(
+            part.strip() for part in raw_language.split(",") if part.strip()
+        )
         # Voice Live supports phrase hints via AudioInputTranscriptionOptions.phrase_list.
         self._phrase_list = self._load_phrase_list() if use_phrase_list else None
         self._chunk_size_bytes = int(os.getenv("VOICE_LIVE_AUDIO_CHUNK_BYTES", "2400"))
@@ -179,10 +188,11 @@ class VoiceLiveProvider(SttProvider):
 
     def display_name(self) -> str:
         phrase_suffix = ", phrase_list=on" if self._phrase_list else ""
+        lang_display = self._transcription_language or "auto-multilingual"
         return (
             f"{self.name} "
             f"(session={self._model}, transcription={self._transcription_model}, "
-            f"lang={self._transcription_language}{phrase_suffix})"
+            f"lang={lang_display}{phrase_suffix})"
         )
 
     def transcribe(self, sample: BenchmarkSample) -> InferenceResult:
@@ -305,7 +315,7 @@ class VoiceLiveProvider(SttProvider):
                     input_audio_sampling_rate=24000,
                     input_audio_transcription=AudioInputTranscriptionOptions(
                         model=self._transcription_model,
-                        language=self._transcription_language,
+                        language=(self._transcription_language or None),
                         phrase_list=self._phrase_list,
                     ),
                     turn_detection=turn_detection,
@@ -1283,6 +1293,57 @@ def _is_voice_live_transport_error(message: str) -> bool:
     )
 
 
+def _is_timeout_error(message: str) -> bool:
+    """True when the sample failed because of a timeout, so it should be
+    skipped and excluded from the provider's averaged performance metrics."""
+    text = (message or "").lower()
+    return "timeout" in text or "timed out" in text
+
+
+def _readable_results_markdown(provider_display: str, records: list[dict[str, Any]]) -> str:
+    """Render a human-readable Markdown view of a single provider's per-sample
+    results (the counterpart to the machine-oriented ``.results.jsonl`` file)."""
+    total = len(records)
+    skipped = sum(1 for r in records if r.get("skipped"))
+    counted = total - skipped
+    lines = [
+        f"# Readable Results — {provider_display}",
+        "",
+        f"- **Files counted toward performance:** {counted}",
+        f"- **Files timed out (skipped):** {skipped}",
+        f"- **Total audio files:** {total}",
+        "",
+        "---",
+        "",
+    ]
+    for r in records:
+        if r.get("skipped"):
+            status = "⏱️ Timeout (skipped — not counted)"
+        elif r.get("error"):
+            status = "⚠️ Error"
+        else:
+            status = "✅ OK"
+        lines.append(f"## {r.get('call_id') or 'unknown'} — {status}")
+        lines.append("")
+        lines.append(f"- **Reference:** {r.get('reference_text') or '_(empty)_'}")
+        lines.append(f"- **Hypothesis:** {r.get('hypothesis_text') or '_(empty response)_'}")
+        corrected = r.get("corrected_hypothesis_text") or ""
+        if corrected and corrected != (r.get("hypothesis_text") or ""):
+            lines.append(f"- **Corrected:** {corrected}")
+        if not r.get("skipped"):
+            lines.append(
+                f"- **WER:** {float(r.get('wer', 0.0)):.4f} · "
+                f"**CER:** {float(r.get('cer', 0.0)):.4f} · "
+                f"**Keyword Recall:** {float(r.get('keyword_recall', 0.0)):.4f} · "
+                f"**Confidence:** {float(r.get('confidence', 0.0)):.4f}"
+            )
+        lines.append(f"- **Latency:** {float(r.get('latency_ms', 0.0)):.2f} ms")
+        if r.get("error"):
+            lines.append(f"- **Error:** {r.get('error')}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def _run_provider(
     provider: SttProvider,
     samples: list[BenchmarkSample],
@@ -1292,6 +1353,8 @@ def _run_provider(
     results_path = output_dir / f"{provider.name}.results.jsonl"
     provider_display_name = provider.display_name()
     row_count = 0
+    attempted_count = 0
+    skipped_count = 0
     wer_total = 0.0
     cer_total = 0.0
     keyword_total = 0.0
@@ -1302,6 +1365,7 @@ def _run_provider(
     corrected_confidence_total = 0.0
     latency_total = 0.0
     provider_blocked_error: str | None = None
+    readable_records: list[dict[str, Any]] = []
     correction_engine = CorrectionEngine.from_file(load_settings().corrections_path)
 
     with results_path.open("w", encoding="utf-8") as handle:
@@ -1377,7 +1441,19 @@ def _run_provider(
                 "latency_ms": result.latency_ms,
                 "error": result.error or error_message,
             }
+
+            # Timeouts are recorded for transparency but excluded from the
+            # averaged performance metrics (they only measure a failed request,
+            # not the provider's transcription quality).
+            is_timeout = _is_timeout_error(record["error"])
+            record["skipped"] = is_timeout
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            readable_records.append(record)
+
+            attempted_count += 1
+            if is_timeout:
+                skipped_count += 1
+                continue
 
             row_count += 1
             wer_total += raw_eval.wer
@@ -1390,10 +1466,19 @@ def _run_provider(
             corrected_confidence_total += corrected_eval.confidence
             latency_total += result.latency_ms
 
+    # Human-readable companion to the machine-oriented .results.jsonl file.
+    readable_path = output_dir / f"{provider.name}.readable.md"
+    readable_path.write_text(
+        _readable_results_markdown(provider_display_name, readable_records),
+        encoding="utf-8",
+    )
+
     return {
         "provider": provider.name,
         "provider_display": provider_display_name,
         "samples": row_count,
+        "attempted": attempted_count,
+        "skipped": skipped_count,
         "avg_wer": wer_total / max(1, row_count),
         "avg_cer": cer_total / max(1, row_count),
         "avg_keyword_recall": keyword_total / max(1, row_count),

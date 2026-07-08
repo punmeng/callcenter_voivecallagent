@@ -156,3 +156,11 @@ Conversation Flow
 的貨況
 貨況查詢
 查詢貨況狀態
+Software RD
+Software RD Job
+Hardware RD
+Hardware RD Job
+RD
+Job
+RD Job 時間
+延長 Hardware RD Job 時間

@@ -27,10 +27,11 @@ except ImportError:
     HAS_MARKDOWN = False
 
 from .config import Settings, load_settings
+from .agent_runtime import build_azure_openai_agent, build_foundry_agent
 from .uc1_blob_reader import BlobReader
 from .uc1_main import Uc1RunSummary, run_uc1
 from .stt_config import load_stt_config, provider_to_display_label
-from .stt_benchmark import BenchmarkSample, append_cost_report, build_provider, parse_dataset, run_benchmark
+from .stt_benchmark import BenchmarkSample, append_cost_report, build_provider, compute_evaluation, parse_dataset, run_benchmark
 from .tts_benchmark import build_tts_provider, parse_tts_dataset, run_tts_benchmark
 from .uc2_live_assistant import create_app as create_uc2_live_app
 from .uc3_voice_agent import create_app as create_uc3_live_app
@@ -275,6 +276,48 @@ _SUMMARY_ROW_RE = re.compile(
 _COST_ROW_RE = re.compile(
     r"^\|\s*(?P<provider>[^|]+?)\s*\|\s*(?P<cost>[^|]+?)\s*\|$"
 )
+# Rows in the "## Corrected Transcript View" table: provider + 4 numeric columns.
+_CORRECTED_ROW_RE = re.compile(
+    r"^\|\s*(?P<provider>[^|]+?)\s*\|\s*(?P<cwer>[0-9.]+)\s*\|\s*(?P<ccer>[0-9.]+)\s*\|\s*(?P<ckeyword>[0-9.]+)\s*\|\s*(?P<cconf>[0-9.]+)\s*\|$"
+)
+
+
+def _parse_corrected_metrics(content: str) -> dict[str, dict[str, float]]:
+    """Parse the '## Corrected Transcript View' table into
+    ``{provider_display: {avg_corrected_wer, avg_corrected_cer, ...}}``."""
+    result: dict[str, dict[str, float]] = {}
+    in_corrected = False
+    for line in content.splitlines():
+        if line.startswith("## Corrected Transcript View"):
+            in_corrected = True
+            continue
+        if line.startswith("## ") and not line.startswith("## Corrected Transcript View"):
+            in_corrected = False
+        if not in_corrected:
+            continue
+        match = _CORRECTED_ROW_RE.match(line)
+        if not match:
+            continue
+        provider = match.group("provider").strip()
+        if provider.lower() == "provider":
+            continue
+        result[provider] = {
+            "avg_corrected_wer": float(match.group("cwer")),
+            "avg_corrected_cer": float(match.group("ccer")),
+            "avg_corrected_keyword_recall": float(match.group("ckeyword")),
+            "avg_corrected_confidence": float(match.group("cconf")),
+        }
+    return result
+
+
+def _merge_corrected_metrics(
+    rows: list[dict[str, Any]], corrected: dict[str, dict[str, float]]
+) -> None:
+    """Merge parsed corrected metrics into provider rows (matched by display name)."""
+    for row in rows:
+        corr = corrected.get(str(row.get("provider", "")))
+        if corr:
+            row.update(corr)
 
 
 def _scan_benchmark_runs(root: Path = _BENCHMARK_ROOT) -> list[BenchmarkRun]:
@@ -337,6 +380,8 @@ def _scan_benchmark_runs(root: Path = _BENCHMARK_ROOT) -> list[BenchmarkRun]:
                     )
             if line.startswith("- Recommended default:") and recommendation is None:
                 recommendation = line[2:].strip()
+
+        _merge_corrected_metrics(providers, _parse_corrected_metrics(content))
 
         runs.append(
             BenchmarkRun(
@@ -613,50 +658,65 @@ def _reference_lookup_from_dataset(reference_dataset_path: str | None) -> dict[s
 def _benchmark_provider_rows_html(
     rows: list[dict[str, Any]],
     *,
-    colspan: int = 8,
+    colspan: int = 11,
     with_details: bool = False,
+    with_success: bool = False,
+    run_id: str = "",
 ) -> str:
-    """Render provider metric rows, coloring the best value green and the worst value
-    red per metric column when comparing 2+ providers. Lower is better for WER/CER/
-    latency; higher is better for keyword recall/confidence."""
+    """Render provider metric rows with a threshold-based quality color per row:
+    green when WER and CER are both < 0.10; else yellow when corrected WER and CER
+    are both < 0.15; else grey. Confidence < 0.70 overrides the whole row to red.
+    The Tuning button is only offered when confidence < 0.85."""
     if not rows:
         return f"<tr><td colspan='{colspan}' class='muted'>No provider rows found.</td></tr>"
 
-    def best_worst(key: str, higher_better: bool) -> tuple[float | None, float | None]:
-        vals = [float(r.get(key, 0.0) or 0.0) for r in rows]
-        if len(rows) < 2 or len(set(vals)) < 2:
-            return (None, None)
-        return (max(vals), min(vals)) if higher_better else (min(vals), max(vals))
+    def row_color(r: dict[str, Any]) -> str:
+        conf = float(r.get("avg_confidence", 0.0) or 0.0)
+        wer = float(r.get("avg_wer", 0.0) or 0.0)
+        cer = float(r.get("avg_cer", 0.0) or 0.0)
+        cwer = float(r.get("avg_corrected_wer", 0.0) or 0.0)
+        ccer = float(r.get("avg_corrected_cer", 0.0) or 0.0)
+        if conf < 0.70:
+            return "#ef4444"  # red — whole line
+        if wer < 0.10 and cer < 0.10:
+            return "#22c55e"  # green
+        if cwer < 0.15 and ccer < 0.15:
+            return "#f59e0b"  # yellow
+        return "#9ca3af"  # grey
 
-    bw = {
-        "avg_wer": best_worst("avg_wer", False),
-        "avg_cer": best_worst("avg_cer", False),
-        "avg_keyword_recall": best_worst("avg_keyword_recall", True),
-        "avg_confidence": best_worst("avg_confidence", True),
-        "avg_latency_ms": best_worst("avg_latency_ms", False),
-    }
-
-    def cell(key: str, value: float, fmt: str) -> str:
-        best, worst = bw[key]
-        style = ""
-        if best is not None:
-            if value == best:
-                style = " style=\"color:#22c55e; font-weight:700;\""
-            elif value == worst:
-                style = " style=\"color:#ef4444; font-weight:700;\""
-        return f"<td{style}>{format(value, fmt)}</td>"
+    def td(value: float, fmt: str, color: str) -> str:
+        return f"<td style=\"color:{color}; font-weight:600;\">{format(value, fmt)}</td>"
 
     out: list[str] = []
     for r in rows:
+        conf = float(r.get("avg_confidence", 0.0) or 0.0)
+        color = row_color(r)
+        success_cell = ""
+        if with_success:
+            counted = int(r.get("counted", r.get("samples", 0)) or 0)
+            attempted = int(r.get("attempted", counted) or 0)
+            if attempted and counted == attempted:
+                success_color = "#22c55e"
+            elif counted > 0:
+                success_color = "#f59e0b"
+            else:
+                success_color = "#ef4444"
+            success_cell = (
+                f"<td style=\"color:{success_color}; font-weight:700;\">{counted}/{attempted}</td>"
+            )
         row_html = (
             "<tr>"
             f"<td>{escape(str(r.get('provider', '')))}</td>"
             f"<td>{int(r.get('samples', 0) or 0)}</td>"
-            + cell("avg_wer", float(r.get("avg_wer", 0.0) or 0.0), ".4f")
-            + cell("avg_cer", float(r.get("avg_cer", 0.0) or 0.0), ".4f")
-            + cell("avg_keyword_recall", float(r.get("avg_keyword_recall", 0.0) or 0.0), ".4f")
-            + cell("avg_confidence", float(r.get("avg_confidence", 0.0) or 0.0), ".4f")
-            + cell("avg_latency_ms", float(r.get("avg_latency_ms", 0.0) or 0.0), ".2f")
+            + success_cell
+            + td(float(r.get("avg_wer", 0.0) or 0.0), ".4f", color)
+            + td(float(r.get("avg_cer", 0.0) or 0.0), ".4f", color)
+            + td(float(r.get("avg_keyword_recall", 0.0) or 0.0), ".4f", color)
+            + td(float(r.get("avg_confidence", 0.0) or 0.0), ".4f", color)
+            + td(float(r.get("avg_corrected_wer", 0.0) or 0.0), ".4f", color)
+            + td(float(r.get("avg_corrected_cer", 0.0) or 0.0), ".4f", color)
+            + td(float(r.get("avg_corrected_confidence", 0.0) or 0.0), ".4f", color)
+            + td(float(r.get("avg_latency_ms", 0.0) or 0.0), ".2f", color)
         )
         if with_details:
             # summary.md shows a verbose display name for Voice Live providers
@@ -668,8 +728,17 @@ def _benchmark_provider_rows_html(
             row_html += (
                 "<td><button style=\"background:rgba(167,139,250,.18); color:#c4b5fd; "
                 "border:1px solid rgba(167,139,250,.45); border-radius:999px; padding:6px 12px; "
-                f"cursor:pointer; font-weight:600;\" onclick=\"openProviderDetails({prov_json})\">Details</button></td>"
+                f"cursor:pointer; font-weight:600;\" onclick=\"openProviderDetails({prov_json})\">Details</button>"
             )
+            if run_id and conf < 0.85:
+                run_json = escape(json.dumps(run_id), quote=True)
+                row_html += (
+                    " <button style=\"background:rgba(52,211,153,.16); color:#6ee7b7; "
+                    "border:1px solid rgba(52,211,153,.45); border-radius:999px; padding:6px 12px; "
+                    "cursor:pointer; font-weight:600; margin-left:6px;\" "
+                    f"onclick=\"openProviderTuning({prov_json}, {run_json})\">Tuning</button>"
+                )
+            row_html += "</td>"
         row_html += "</tr>"
         out.append(row_html)
     return "".join(out)
@@ -704,6 +773,11 @@ def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
                         "keyword_recall": float(payload.get("keyword_recall") or 0.0),
                     "confidence": float(payload.get("confidence") or 0.0),
                         "latency_ms": float(payload.get("latency_ms") or 0.0),
+                        "corrected_hypothesis_text": str(payload.get("corrected_hypothesis_text") or ""),
+                        "corrected_wer": float(payload.get("corrected_wer") or 0.0),
+                        "corrected_cer": float(payload.get("corrected_cer") or 0.0),
+                        "corrected_keyword_recall": float(payload.get("corrected_keyword_recall") or 0.0),
+                        "corrected_confidence": float(payload.get("corrected_confidence") or 0.0),
                         "error": str(payload.get("error") or ""),
                     }
                 )
@@ -715,12 +789,13 @@ def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
     provider_details_js = json.dumps(provider_details, ensure_ascii=False).replace("</", "<\\/")
 
     provider_rows = _benchmark_provider_rows_html(
-        run_summary.provider_rows, colspan=8, with_details=True
+        run_summary.provider_rows, colspan=12, with_details=True, with_success=True, run_id=run_summary.run_id
     )
 
     artifact_rows = "".join(
         f"<tr><td><a href=\"/api/uc1/report?path={escape(path, quote=True)}\" style=\"color:#a78bfa; text-decoration:underline;\" onclick=\"return viewBenchmarkArtifact(event)\">{escape(Path(path).name)}</a></td><td>{escape(path)}</td></tr>"
         for path in run_summary.result_files
+        if path.lower().endswith(".md")
     ) or "<tr><td colspan='2' class='muted'>No result artifact files.</td></tr>"
 
     return f"""
@@ -736,10 +811,17 @@ def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
           <span class="chip"><strong>Success</strong> {run_summary.success_count}</span>
           <span class="chip"><strong>Errors</strong> {run_summary.error_count}</span>
         </div>
+        <div class="score-legend" style="display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:rgba(255,255,255,0.03); font-size:0.82rem;">
+          <span style="font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em;">Score colors</span>
+          <span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:12px; height:12px; border-radius:3px; background:#22c55e; display:inline-block;"></span>Green — WER &lt; 0.10 and CER &lt; 0.10</span>
+          <span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:12px; height:12px; border-radius:3px; background:#f59e0b; display:inline-block;"></span>Yellow — Corr WER &lt; 0.15 and Corr CER &lt; 0.15</span>
+          <span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:12px; height:12px; border-radius:3px; background:#9ca3af; display:inline-block;"></span>Grey — otherwise</span>
+          <span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:12px; height:12px; border-radius:3px; background:#ef4444; display:inline-block;"></span>Red — Confidence &lt; 0.70 (Need LLM Tunning)</span>
+        </div>
         <div class="table-wrap" style="margin-top: 12px;">
-          <table>
+          <table class="bench-table">
             <thead>
-              <tr><th>Provider</th><th>Samples</th><th>WER</th><th>CER</th><th>Keyword Recall</th><th>Confidence</th><th>Latency (ms)</th><th>Details</th></tr>
+              <tr><th>Provider</th><th>Samples</th><th>Success/Total</th><th>WER</th><th>CER</th><th>Keyword Recall</th><th>Confidence</th><th>Corr WER</th><th>Corr CER</th><th>Corr Confidence</th><th>Latency (ms)</th><th>Details</th></tr>
             </thead>
             <tbody>{provider_rows}</tbody>
           </table>
@@ -782,6 +864,16 @@ def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
       </div>
     </div>
 
+    <div id="providerTuningModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1002; overflow:auto;">
+      <div style="background:#122018; margin:20px auto; padding:20px; border-radius:12px; max-width:1000px; max-height:84vh; overflow:auto; border:1px solid rgba(52,211,153,0.3);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <h3 id="providerTuningTitle" style="margin:0; color:#6ee7b7;"></h3>
+          <button onclick="closeProviderTuning()" style="background:none; border:none; color:#fff; font-size:24px; cursor:pointer; padding:0;">&times;</button>
+        </div>
+        <div id="providerTuningBody" style="color:#e0e0e0; line-height:1.6;"></div>
+      </div>
+    </div>
+
     <script>
       const benchmarkProviderDetails = {provider_details_js};
 
@@ -806,11 +898,12 @@ def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
         const cards = items.map((item) => {{
           const expected = item.reference_text ? safe(item.reference_text) : '<span style="opacity:.7;">[empty/no reference]</span>';
           const response = item.hypothesis_text ? safe(item.hypothesis_text) : '<span style="opacity:.7;">[empty response]</span>';
+          const corrected = item.corrected_hypothesis_text ? safe(item.corrected_hypothesis_text) : '<span style="opacity:.7;">[no change]</span>';
           const error = item.error ? '<div style="margin-top:8px; padding:8px; border:1px solid rgba(239,68,68,.55); border-radius:8px; color:#fca5a5;">' + safe(item.error) + '</div>' : '';
           return `
             <div style="border:1px solid rgba(255,255,255,.14); border-radius:10px; padding:14px; margin-bottom:12px; background:rgba(255,255,255,.03);">
               <div style="font-weight:700; color:#c4b5fd; margin-bottom:8px;">${{safe(item.call_id || 'unknown')}}</div>
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
                 <div style="padding:10px; border-radius:8px; border-left:4px solid #34d399; background:rgba(255,255,255,.03);">
                   <div style="font-weight:700; color:#86efac; margin-bottom:6px;">Expected</div>
                   <div style="white-space:pre-wrap; word-break:break-word;">${{expected}}</div>
@@ -819,12 +912,19 @@ def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
                   <div style="font-weight:700; color:#fca5a5; margin-bottom:6px;">Model Response</div>
                   <div style="white-space:pre-wrap; word-break:break-word;">${{response}}</div>
                 </div>
+                <div style="padding:10px; border-radius:8px; border-left:4px solid #60a5fa; background:rgba(255,255,255,.03);">
+                  <div style="font-weight:700; color:#93c5fd; margin-bottom:6px;">Corrected Response</div>
+                  <div style="white-space:pre-wrap; word-break:break-word;">${{corrected}}</div>
+                </div>
               </div>
-              <div style="display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:8px; margin-top:10px;">
+              <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin-top:10px;">
                 <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">WER</div><div style="font-weight:700;">${{Number(item.wer || 0).toFixed(4)}}</div></div>
                 <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">CER</div><div style="font-weight:700;">${{Number(item.cer || 0).toFixed(4)}}</div></div>
                 <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Keyword Recall</div><div style="font-weight:700;">${{Number(item.keyword_recall || 0).toFixed(4)}}</div></div>
                 <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Confidence</div><div style="font-weight:700;">${{Number(item.confidence || 0).toFixed(4)}}</div></div>
+                <div style="padding:8px; border:1px solid rgba(96,165,250,.35); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Corr WER</div><div style="font-weight:700; color:#93c5fd;">${{Number(item.corrected_wer || 0).toFixed(4)}}</div></div>
+                <div style="padding:8px; border:1px solid rgba(96,165,250,.35); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Corr CER</div><div style="font-weight:700; color:#93c5fd;">${{Number(item.corrected_cer || 0).toFixed(4)}}</div></div>
+                <div style="padding:8px; border:1px solid rgba(96,165,250,.35); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Corr Confidence</div><div style="font-weight:700; color:#93c5fd;">${{Number(item.corrected_confidence || 0).toFixed(4)}}</div></div>
                 <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Latency (ms)</div><div style="font-weight:700;">${{Number(item.latency_ms || 0).toFixed(2)}}</div></div>
               </div>
               ${{error}}
@@ -838,6 +938,70 @@ def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
 
       function closeProviderDetails() {{
         document.getElementById('providerDetailModal').style.display = 'none';
+      }}
+
+      const tuningSafe = (value) => {{
+        const el = document.createElement('div');
+        el.textContent = String(value ?? '');
+        return el.innerHTML;
+      }};
+
+      function openProviderTuning(providerName, runId) {{
+        const title = document.getElementById('providerTuningTitle');
+        const body = document.getElementById('providerTuningBody');
+        title.textContent = providerName + ' - LLM Tuning';
+        body.innerHTML = '<div style="padding:14px; border:1px solid rgba(52,211,153,.35); border-radius:8px;">Running LLM meaning-correction over transcripts… this may take a moment.</div>';
+        document.getElementById('providerTuningModal').style.display = 'block';
+
+        fetch('/benchmark/tune', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ provider: providerName, run_id: runId }}),
+        }})
+          .then(async (r) => {{
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+            return data;
+          }})
+          .then((data) => {{
+            const items = data.items || [];
+            const summary = `
+              <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin-bottom:14px;">
+                <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Avg WER (raw → tuned)</div><div style="font-weight:700;">${{Number(data.avg_wer||0).toFixed(4)}} → <span style="color:#6ee7b7;">${{Number(data.avg_tuned_wer||0).toFixed(4)}}</span></div></div>
+                <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Avg CER (raw → tuned)</div><div style="font-weight:700;">${{Number(data.avg_cer||0).toFixed(4)}} → <span style="color:#6ee7b7;">${{Number(data.avg_tuned_cer||0).toFixed(4)}}</span></div></div>
+                <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Avg Tuned Confidence</div><div style="font-weight:700; color:#6ee7b7;">${{Number(data.avg_tuned_confidence||0).toFixed(4)}}</div></div>
+              </div>`;
+            const cards = items.map((item) => {{
+              const original = item.hypothesis_text ? tuningSafe(item.hypothesis_text) : '<span style="opacity:.7;">[empty]</span>';
+              const tuned = item.tuned_text ? tuningSafe(item.tuned_text) : '<span style="opacity:.7;">[no output]</span>';
+              const expected = item.reference_text ? tuningSafe(item.reference_text) : '<span style="opacity:.7;">[no reference]</span>';
+              const error = item.error ? '<div style="margin-top:8px; padding:8px; border:1px solid rgba(239,68,68,.55); border-radius:8px; color:#fca5a5;">' + tuningSafe(item.error) + '</div>' : '';
+              return `
+                <div style="border:1px solid rgba(255,255,255,.14); border-radius:10px; padding:14px; margin-bottom:12px; background:rgba(255,255,255,.03);">
+                  <div style="font-weight:700; color:#6ee7b7; margin-bottom:8px;">${{tuningSafe(item.call_id || 'unknown')}}</div>
+                  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+                    <div style="padding:10px; border-radius:8px; border-left:4px solid #34d399; background:rgba(255,255,255,.03);"><div style="font-weight:700; color:#86efac; margin-bottom:6px;">Expected</div><div style="white-space:pre-wrap; word-break:break-word;">${{expected}}</div></div>
+                    <div style="padding:10px; border-radius:8px; border-left:4px solid #f87171; background:rgba(255,255,255,.03);"><div style="font-weight:700; color:#fca5a5; margin-bottom:6px;">Raw STT</div><div style="white-space:pre-wrap; word-break:break-word;">${{original}}</div></div>
+                    <div style="padding:10px; border-radius:8px; border-left:4px solid #34d399; background:rgba(52,211,153,.06);"><div style="font-weight:700; color:#6ee7b7; margin-bottom:6px;">LLM Tuned</div><div style="white-space:pre-wrap; word-break:break-word;">${{tuned}}</div></div>
+                  </div>
+                  <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin-top:10px;">
+                    <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">WER → Tuned</div><div style="font-weight:700;">${{Number(item.wer||0).toFixed(4)}} → <span style="color:#6ee7b7;">${{Number(item.tuned_wer||0).toFixed(4)}}</span></div></div>
+                    <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">CER → Tuned</div><div style="font-weight:700;">${{Number(item.cer||0).toFixed(4)}} → <span style="color:#6ee7b7;">${{Number(item.tuned_cer||0).toFixed(4)}}</span></div></div>
+                    <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Tuned Keyword Recall</div><div style="font-weight:700; color:#6ee7b7;">${{Number(item.tuned_keyword_recall||0).toFixed(4)}}</div></div>
+                    <div style="padding:8px; border:1px solid rgba(255,255,255,.12); border-radius:8px;"><div style="opacity:.75; font-size:12px;">Tuned Confidence</div><div style="font-weight:700; color:#6ee7b7;">${{Number(item.tuned_confidence||0).toFixed(4)}}</div></div>
+                  </div>
+                  ${{error}}
+                </div>`;
+            }}).join('');
+            body.innerHTML = summary + (cards || '<div style="padding:12px;">No samples found.</div>');
+          }})
+          .catch((err) => {{
+            body.innerHTML = '<div style="padding:14px; border:1px solid rgba(239,68,68,.55); border-radius:8px; color:#fca5a5;">Tuning failed: ' + tuningSafe(err.message || err) + '</div>';
+          }});
+      }}
+
+      function closeProviderTuning() {{
+        document.getElementById('providerTuningModal').style.display = 'none';
       }}
 
       function viewBenchmarkArtifact(event) {{
@@ -869,16 +1033,154 @@ def _benchmark_run_result_html(run_summary: BenchmarkRunSummary | None) -> str:
       document.getElementById('providerDetailModal').onclick = function(e) {{
         if (e.target === this) closeProviderDetails();
       }};
+      document.getElementById('providerTuningModal').onclick = function(e) {{
+        if (e.target === this) closeProviderTuning();
+      }};
     </script>
     """
+
+
+_TUNING_INSTRUCTIONS = (
+    "You are a speech-to-text transcript correction assistant for a Traditional Chinese "
+    "(zh-TW) call center. You are given a raw STT hypothesis that may contain "
+    "mis-recognized words (wrong homophones, garbled English technical terms, etc.). "
+    "Rewrite it into the most likely INTENDED utterance based on meaning and context.\n"
+    "Rules:\n"
+    "- Output Traditional Chinese; keep English technical terms in English (e.g. Hardware RD, Software RD, Job).\n"
+    "- Fix obvious homophone/phonetic errors and spacing, but do NOT add, remove, or invent content.\n"
+    "- Do NOT translate, summarize, or explain.\n"
+    "- Return ONLY the corrected transcript text on a single line, with no quotes or labels."
+)
+
+
+def _build_tuning_agent(settings: Settings) -> Any:
+    """Build an LLM agent used for meaning-based transcript correction.
+
+    Prefers a dedicated Foundry tuning agent (STT_TUNING_AGENT_NAME), then a Foundry
+    model deployment, then Azure OpenAI — mirroring the QaJudge fallback chain."""
+    endpoint = (settings.foundry_project_endpoint or "").strip()
+    tuning_agent_name = (os.getenv("STT_TUNING_AGENT_NAME") or "").strip()
+    tuning_agent_version = (os.getenv("STT_TUNING_AGENT_VERSION") or "").strip() or None
+    model_deployment = (settings.foundry_model_deployment_name or "").strip()
+
+    if endpoint and tuning_agent_name:
+        return build_foundry_agent(
+            name="VoiceCall STT Tuning",
+            instructions=_TUNING_INSTRUCTIONS,
+            project_endpoint=endpoint,
+            agent_name=tuning_agent_name,
+            agent_version=tuning_agent_version,
+        )
+    if endpoint and model_deployment:
+        return build_foundry_agent(
+            name="VoiceCall STT Tuning",
+            instructions=_TUNING_INSTRUCTIONS,
+            project_endpoint=endpoint,
+            model=model_deployment,
+        )
+    if settings.aoai_endpoint:
+        return build_azure_openai_agent(
+            name="VoiceCall STT Tuning",
+            instructions=_TUNING_INSTRUCTIONS,
+            model=settings.aoai_deployment,
+            azure_endpoint=settings.aoai_endpoint.strip().rstrip("/"),
+            api_version=settings.aoai_api_version,
+            api_key=settings.aoai_api_key or None,
+        )
+    raise ValueError(
+        "LLM tuning requires FOUNDRY_PROJECT_ENDPOINT (+ agent name or model deployment) "
+        "or AOAI_ENDPOINT."
+    )
+
+
+def _load_provider_result_rows(run_id: str, provider: str) -> tuple[Path, list[dict[str, Any]]]:
+    """Locate and load a provider's per-sample benchmark results for a run."""
+    safe_run = Path(run_id).name  # prevent path traversal
+    run_dir = _BENCHMARK_ROOT / safe_run
+    provider_key = str(provider).split(" (", 1)[0].strip()
+    results_path = run_dir / f"{provider_key}.results.jsonl"
+    if not results_path.exists():
+        raise FileNotFoundError(f"No results file for provider '{provider_key}' in run '{safe_run}'.")
+
+    rows: list[dict[str, Any]] = []
+    for raw_line in results_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return results_path, rows
+
+
+async def _tune_provider_transcripts(run_id: str, provider: str) -> dict[str, Any]:
+    """Run LLM meaning-correction over a provider's transcripts and re-score them."""
+    settings = load_settings()
+    _, rows = _load_provider_result_rows(run_id, provider)
+    agent = _build_tuning_agent(settings)
+    semaphore = asyncio.Semaphore(int(os.getenv("STT_TUNING_CONCURRENCY", "4")))
+
+    async def _tune_one(row: dict[str, Any]) -> dict[str, Any]:
+        reference = str(row.get("reference_text") or "")
+        hypothesis = str(row.get("hypothesis_text") or "")
+        keywords = row.get("keywords") if isinstance(row.get("keywords"), list) else []
+        raw_wer = float(row.get("wer") or 0.0)
+        raw_cer = float(row.get("cer") or 0.0)
+
+        tuned_text = hypothesis
+        error = ""
+        if hypothesis.strip():
+            try:
+                async with semaphore:
+                    response = await agent.run(
+                        "Correct this STT transcript to its most likely intended meaning.\n"
+                        f"Transcript: {hypothesis}"
+                    )
+                text = getattr(response, "text", None)
+                tuned_text = (text if isinstance(text, str) else str(response)).strip()
+            except Exception as exc:  # noqa: BLE001 - report per-sample, keep others running
+                error = f"{type(exc).__name__}: {exc}"
+                tuned_text = hypothesis
+
+        tuned_eval = compute_evaluation(reference, tuned_text, keywords, has_error=bool(error))
+        return {
+            "call_id": str(row.get("call_id") or ""),
+            "reference_text": reference,
+            "hypothesis_text": hypothesis,
+            "tuned_text": tuned_text,
+            "wer": raw_wer,
+            "cer": raw_cer,
+            "tuned_wer": tuned_eval.wer,
+            "tuned_cer": tuned_eval.cer,
+            "tuned_keyword_recall": tuned_eval.keyword_recall,
+            "tuned_confidence": tuned_eval.confidence,
+            "error": error,
+        }
+
+    items = await asyncio.gather(*(_tune_one(row) for row in rows))
+    count = max(1, len(items))
+    return {
+        "provider": str(provider).split(" (", 1)[0].strip(),
+        "run_id": Path(run_id).name,
+        "items": items,
+        "avg_wer": sum(i["wer"] for i in items) / count,
+        "avg_tuned_wer": sum(i["tuned_wer"] for i in items) / count,
+        "avg_cer": sum(i["cer"] for i in items) / count,
+        "avg_tuned_cer": sum(i["tuned_cer"] for i in items) / count,
+        "avg_tuned_confidence": sum(i["tuned_confidence"] for i in items) / count,
+    }
 
 
 def _parse_summary_provider_rows(summary_path: Path) -> list[dict[str, Any]]:
     if not summary_path.exists():
         return []
 
+    content = summary_path.read_text(encoding="utf-8")
     rows: list[dict[str, Any]] = []
-    for line in summary_path.read_text(encoding="utf-8").splitlines():
+    for line in content.splitlines():
         match = _SUMMARY_ROW_RE.match(line)
         if not match:
             continue
@@ -893,6 +1195,7 @@ def _parse_summary_provider_rows(summary_path: Path) -> list[dict[str, Any]]:
                 "avg_latency_ms": float(match.group("latency")),
             }
         )
+    _merge_corrected_metrics(rows, _parse_corrected_metrics(content))
     return rows
 
 
@@ -957,10 +1260,37 @@ def _run_benchmark_from_source(
 
     provider_rows = _parse_summary_provider_rows(summary_path)
     result_files = [str(summary_path)]
+    counts_by_provider: dict[str, tuple[int, int]] = {}
     for provider in providers:
         results_path = output_dir / f"{provider.name}.results.jsonl"
         if results_path.exists():
             result_files.append(str(results_path))
+            attempted = 0
+            skipped = 0
+            try:
+                for raw_line in results_path.read_text(encoding="utf-8").splitlines():
+                    raw_line = raw_line.strip()
+                    if not raw_line:
+                        continue
+                    payload = json.loads(raw_line)
+                    attempted += 1
+                    if isinstance(payload, dict) and payload.get("skipped"):
+                        skipped += 1
+            except Exception:
+                pass
+            counts_by_provider[provider.name] = (attempted - skipped, attempted)
+        readable_path = output_dir / f"{provider.name}.readable.md"
+        if readable_path.exists():
+            result_files.append(str(readable_path))
+
+    # Attach success/total counts to each provider row (rows are keyed by the
+    # summary display name, which may carry a " (session=...)" suffix).
+    for row in provider_rows:
+        bare_name = str(row.get("provider", "")).split(" (", 1)[0].strip()
+        if bare_name in counts_by_provider:
+            counted, attempted = counts_by_provider[bare_name]
+            row["counted"] = counted
+            row["attempted"] = attempted
 
     error_count = 0
     success_count = 0
@@ -1227,8 +1557,8 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
       font-family: "Aptos Display", "Aptos", "Segoe UI Variable", "Trebuchet MS", sans-serif;
     }}
     a {{ color: #464feb; text-decoration: none; }}
-    tr th, tr td {{ border: 1px solid #e6e6e6; }}
-    tr th {{ background-color: #f5f5f5; }}
+    tr th, tr td {{ border: 1px solid rgba(196, 205, 238, 0.16); }}
+    tr th {{ background-color: rgba(122, 160, 255, 0.18); color: var(--text); }}
     code {{ color: #dbe6ff; background: rgba(12, 16, 28, 0.58); border: 1px solid rgba(187, 201, 244, 0.22); border-radius: 8px; padding: 2px 7px; }}
     .wrap {{ max-width: 1320px; margin: 0 auto; padding: 20px; animation: rise 0.55s ease; }}
     .topbar {{
@@ -1370,6 +1700,9 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
     table {{ width: 100%; border-collapse: collapse; min-width: 760px; }}
     th, td {{ padding: 12px 14px; text-align: left; border-bottom: 1px solid rgba(198, 209, 240, 0.16); }}
     th {{ color: var(--muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; }}
+    .bench-table {{ min-width: 0; table-layout: fixed; font-size: 0.8rem; }}
+    .bench-table th, .bench-table td {{ padding: 7px 8px; word-break: break-word; letter-spacing: 0.02em; }}
+    .bench-table td:first-child, .bench-table th:first-child {{ width: 17%; }}
     .preview-player {{ width: 170px; height: 34px; }}
     tr:last-child td {{ border-bottom: none; }}
     .muted {{ color: var(--muted); }}
@@ -2151,13 +2484,13 @@ def _benchmark_page(
     latest_cost_html = ""
     latest_recommendation = ""
     if latest:
-        rows = _benchmark_provider_rows_html(latest.providers, colspan=7, with_details=False)
+        rows = _benchmark_provider_rows_html(latest.providers, colspan=10, with_details=False)
         latest_table_html = f"""
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Provider</th><th>Samples</th><th>WER</th><th>CER</th><th>Keyword Recall</th><th>Confidence</th><th>Latency (ms)</th>
+                <th>Provider</th><th>Samples</th><th>WER</th><th>CER</th><th>Keyword Recall</th><th>Confidence</th><th>Corr WER</th><th>Corr CER</th><th>Corr Confidence</th><th>Latency (ms)</th>
               </tr>
             </thead>
             <tbody>{rows}</tbody>
@@ -2186,13 +2519,13 @@ def _benchmark_page(
     for run in runs:
         run_table = "<p class='muted'>No parsed provider rows found.</p>"
         if run.providers:
-            run_rows = _benchmark_provider_rows_html(run.providers, colspan=7, with_details=False)
+            run_rows = _benchmark_provider_rows_html(run.providers, colspan=10, with_details=False)
             run_table = f"""
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Provider</th><th>Samples</th><th>WER</th><th>CER</th><th>Keyword Recall</th><th>Confidence</th><th>Latency (ms)</th>
+                    <th>Provider</th><th>Samples</th><th>WER</th><th>CER</th><th>Keyword Recall</th><th>Confidence</th><th>Corr WER</th><th>Corr CER</th><th>Corr Confidence</th><th>Latency (ms)</th>
                   </tr>
                 </thead>
                 <tbody>{run_rows}</tbody>
@@ -2986,6 +3319,29 @@ _FAVICON_SVG = (
 )
 
 
+async def _benchmark_tune(request: Request) -> JSONResponse:
+    """Run LLM meaning-correction ('tuning') over a provider's transcripts for a run."""
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    run_id = str((payload or {}).get("run_id") or "").strip()
+    provider = str((payload or {}).get("provider") or "").strip()
+    if not run_id or not provider:
+        return JSONResponse({"error": "run_id and provider are required."}, status_code=400)
+
+    try:
+        result = await _tune_provider_transcripts(run_id, provider)
+    except FileNotFoundError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001 - surface unexpected failures to the UI
+        return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=500)
+
+    return JSONResponse(result)
+
+
 async def _favicon(request: Request) -> Response:
     return Response(content=_FAVICON_SVG, media_type="image/svg+xml")
 
@@ -3012,6 +3368,7 @@ def create_app() -> InvocationAgentServerHost:
         Route("/uc3", _uc3, methods=["GET"], name="uc3"),
         Route("/benchmark", _benchmark, methods=["GET"], name="benchmark"),
         Route("/benchmark/run", _benchmark_run, methods=["POST"], name="benchmark_run"),
+        Route("/benchmark/tune", _benchmark_tune, methods=["POST"], name="benchmark_tune"),
         Route("/benchmark/delete-reports", _benchmark_delete_reports, methods=["POST"], name="benchmark_delete_reports"),
         Route("/benchmark/script", _benchmark_script, methods=["GET"], name="benchmark_script"),
         Route("/tts-benchmark", _tts_benchmark, methods=["GET"], name="tts_benchmark"),
