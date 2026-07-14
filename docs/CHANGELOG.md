@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.3.0 - 2026-07-14
+
+TTS benchmark voice selection + custom SSML, and continuous language ID for UC1.
+
+### Added
+
+- **TTS benchmark per-provider voice selection** on the dashboard — a **Voice** dropdown next to each provider (`_TTS_PROVIDER_VOICES`) whose choice is passed through `build_tts_provider(name, voice=...)`, so voices can be compared without editing env vars.
+- **Custom SSML for TTS benchmark** — an SSML box (with `{{text}}` per-sample placeholder) plus a **Generate welcome script** helper that builds a call-center greeting matched to the selected voice. SSML runs are limited to a single provider; `azure-speech-tts` / `mai-voice` synthesize SSML directly via `speak_ssml_async`, while the Voice Live text path speaks the SSML's extracted plain text. Added `ssml` field to `TtsSample`.
+
+### Changed
+
+- **UC1 continuous language identification** — the batch STT agent now sets `SpeechServiceConnection_LanguageIdMode=Continuous`, so language is re-detected/switched per utterance (zh-TW ↔ en-US) instead of only once at the start.
+- Trimmed `data/tts_benchmark.template.jsonl` to 5 representative rows (zh-TW / en-US).
+
 ## v1.2.0 - 2026-07-07
 
 STT benchmark method alignment with UC3, phrase-list/normalization improvements, and Voice Live fixes.

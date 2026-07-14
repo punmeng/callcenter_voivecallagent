@@ -37,7 +37,7 @@ No conversation, no cross-call memory. Recommended runtime: a serverless batch j
 
 | Skill | What it does | Where to configure |
 |---|---|---|
-| Continuous Language ID | Auto-detects zh-TW vs en-US per utterance (`AutoDetectSourceLanguageConfig`). | `SPEECH_LANGUAGES` or `[uc1].languages` in `config/stt_config.toml`. |
+| Continuous Language ID | Auto-detects and switches between zh-TW and en-US throughout the call (`AutoDetectSourceLanguageConfig` + `SpeechServiceConnection_LanguageIdMode=Continuous`, so language is re-detected per utterance instead of only once at the start). | `SPEECH_LANGUAGES` or `[uc1].languages` in `config/stt_config.toml`. |
 | Speaker diarization | `ConversationTranscriber` tags each turn by speaker. | Provider `azure-speech-stt` in `[uc1]`. |
 | Phrase list boosting | Biases recognition toward domain terms/product names. | `assets/phrase_list.txt` (`PHRASE_LIST_PATH`); `[uc1].phrase_list`. |
 | Detailed output + word timestamps | Richer scoring evidence. | Always on. |

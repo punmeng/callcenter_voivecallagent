@@ -79,7 +79,7 @@ python scripts/eval_tts_quality.py --dataset data/tts_benchmark.template.jsonl `
 ```
 
 ### Dataset format (JSONL)
-`{ "sample_id": "...", "text": "...", "language": "zh-TW", "scenario": "zh-TW|en-US|mixed" }`. Required: `sample_id`, `text`. See `data/tts_benchmark.template.jsonl` (12 rows across zh-TW / en-US / mixed).
+`{ "sample_id": "...", "text": "...", "language": "zh-TW", "scenario": "zh-TW|en-US|mixed" }`. Required: `sample_id`, `text`. See `data/tts_benchmark.template.jsonl` (5 rows across zh-TW / en-US).
 
 ### Voice configuration
 - `AZURE_VOICELIVE_TTS_VOICE` (default `zh-TW-HsiaoChenNeural`) — Voice Live path. Names with `Neural` or 2+ dashes → Azure standard voice; otherwise an OpenAI voice string.
@@ -88,6 +88,9 @@ python scripts/eval_tts_quality.py --dataset data/tts_benchmark.template.jsonl `
 - `MAI_VOICE_NAME` — MAI-Voice-2 id (`<locale>-<Name>:MAI-Voice-2`).
 
 > Voice Live TTS key learning: audio requires `modalities=[AUDIO]`; verbatim `pre_generated_assistant_message` gives exact synthesis for Azure neural voices, while OpenAI voices need the instruction strategy. Override with `VOICE_LIVE_TTS_STRATEGY`.
+
+### Dashboard: per-provider voice + custom SSML
+The TTS benchmark page (`/tts-benchmark`) adds a **Voice** dropdown next to each provider (from `_TTS_PROVIDER_VOICES` in [../src/voiceqa/web_ui.py](../src/voiceqa/web_ui.py)) so you can compare specific voices without editing env vars; the selection is passed through `build_tts_provider(name, voice=...)`. A **Custom speech (SSML)** box lets you supply an SSML document (use `{{text}}` as a per-sample placeholder) to tune prosody, style, and pauses; **Generate welcome script** fills in a call-center greeting matched to the selected voice. When SSML is used only one provider may be selected, and its voice must match the SSML `<voice>`. Providers that cannot consume SSML (the Voice Live text-driven path) fall back to the SSML's extracted plain text; `azure-speech-tts` / `mai-voice` synthesize the SSML directly via `speak_ssml_async`.
 
 ---
 
