@@ -60,6 +60,13 @@ class SttAgent:
         speech_config.output_format = speechsdk.OutputFormat.Detailed
         speech_config.request_word_level_timestamps()
         speech_config.set_property_by_name("SpeechRecognition_RequestWordLevelCorrections", "true")
+        # Continuous language identification: keep detecting/switching language for the
+        # whole audio (e.g. zh-TW <-> en-US mid-call) instead of only detecting once at
+        # the start. Without this the SDK defaults to "AtStart".
+        speech_config.set_property(
+            property_id=speechsdk.PropertyId.SpeechServiceConnection_LanguageIdMode,
+            value="Continuous",
+        )
 
         audio_config = speechsdk.audio.AudioConfig(filename=str(audio_path))
         auto_lang_config = speechsdk.languageconfig.AutoDetectSourceLanguageConfig(

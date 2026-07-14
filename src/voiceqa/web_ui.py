@@ -49,6 +49,49 @@ _TTS_SUPPORTED_PROVIDERS = [
 _TTS_DEFAULT_PROVIDERS = ["voice-live-api", "azure-speech-tts"]
 _TTS_DEFAULT_DATASET = "data/tts_benchmark.template.jsonl"
 
+# Selectable voices per TTS provider. Voice Live / gpt-realtime accept native
+# OpenAI voice names as well as Azure neural voices; the Speech-SDK backed
+# providers (azure-speech-tts, mai-voice) accept Azure neural / MAI voice names.
+# The first entry of each list is treated as the default selection.
+_TTS_PROVIDER_VOICES: dict[str, list[str]] = {
+    "voice-live-api": [
+        "alloy",
+        "echo",
+        "shimmer",
+        "marin",
+        "zh-TW-HsiaoChenNeural",
+        "zh-TW-YunJheNeural",
+        "en-US-JennyNeural",
+        "en-US-AvaMultilingualNeural",
+    ],
+    "gpt-realtime": [
+        "marin",
+        "alloy",
+        "echo",
+        "shimmer",
+        "cedar",
+    ],
+    "azure-speech-tts": [
+        "zh-TW-HsiaoChenNeural",
+        "zh-TW-YunJheNeural",
+        "zh-TW-HsiaoYuNeural",
+        "zh-CN-XiaoxiaoNeural",
+        "en-US-JennyNeural",
+        "en-US-GuyNeural",
+        "en-US-AvaMultilingualNeural",
+    ],
+    "mai-voice": [
+        "en-US-Harper:MAI-Voice-2",
+        "en-US-Ava:MAI-Voice-2",
+        "en-US-Andrew:MAI-Voice-2",
+    ],
+}
+
+
+def _tts_default_voice(provider_id: str) -> str:
+    voices = _TTS_PROVIDER_VOICES.get(provider_id) or []
+    return voices[0] if voices else ""
+
 # Maps action button labels to i18n keys so buttons translate consistently.
 _ACTION_LABEL_KEYS = {
     "Open live console": "btn_open_live",
@@ -1961,6 +2004,11 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         tts_run_result: "Run result",
         tts_audio_suffix: "generated audio",
         tts_th_sample: "Sample",
+        tts_btn_play: "Play",
+        tts_voice_label: "Voice",
+        tts_ssml_title: "Custom speech (SSML)",
+        tts_ssml_gen: "Generate welcome script",
+        tts_ssml_help: "Optional. Provide SSML to customize prosody, style, and pauses. Use <code>{{text}}</code> as a placeholder for each sample's text. When SSML is used, only one provider can be selected and the SSML voice matches it. Leave empty to synthesize the raw dataset text.",
         // Common
         voice_model: "Voice model",
         provider: "Provider",
@@ -2148,6 +2196,11 @@ def _page_shell(title: str, active: str, body: str, stt_method: str = "Configure
         tts_run_result: "執行結果",
         tts_audio_suffix: "產生的音訊",
         tts_th_sample: "樣本",
+        tts_btn_play: "播放",
+        tts_voice_label: "語音",
+        tts_ssml_title: "自訂語音（SSML）",
+        tts_ssml_gen: "產生歡迎詞",
+        tts_ssml_help: "選填。提供 SSML 以自訂語調、風格與停頓。使用 <code>{{text}}</code> 作為每個樣本文字的佔位符。使用 SSML 時只能選擇單一提供者，且 SSML 語音會與其相符。留空則直接合成資料集原始文字。",
         // Common
         voice_model: "語音模型",
         provider: "提供者",
@@ -2884,10 +2937,27 @@ def _tts_run_audio_items(run_dir: Path) -> dict[str, list[Uc1AudioItem]]:
 
 
 def _run_tts_benchmark_from_dataset(
-    dataset_path: str, provider_ids: list[str], parallel: bool
+    dataset_path: str,
+    provider_ids: list[str],
+    parallel: bool,
+    voices: dict[str, str] | None = None,
+    ssml_template: str | None = None,
 ) -> str:
-    providers = [build_tts_provider(provider_id) for provider_id in provider_ids]
+    voices = voices or {}
+    providers = [
+        build_tts_provider(provider_id, voice=voices.get(provider_id))
+        for provider_id in provider_ids
+    ]
     samples = parse_tts_dataset(Path(dataset_path))
+
+    template = (ssml_template or "").strip()
+    if template:
+        for sample in samples:
+            if "{text}" in template:
+                sample.ssml = template.replace("{text}", sample.text)
+            else:
+                sample.ssml = template
+
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     output_dir = _TTS_BENCHMARK_ROOT / run_id
     max_workers = len(providers) if parallel else 1
@@ -2940,7 +3010,7 @@ def _tts_audio_players_html(run_id: str) -> str:
         rows = "".join(
             f"<tr><td>{escape(item.name)}</td>"
             f"<td>{escape(_format_seconds(item.duration_seconds))}</td>"
-            f"<td><audio class='preview-player' controls preload='none' "
+            "<td><audio class='preview-player' controls preload='none' "
             f"src='/api/audio/preview?path={escape(quote(item.path, safe=''), quote=True)}'></audio></td></tr>"
             for item in items
         )
@@ -2965,20 +3035,40 @@ def _tts_benchmark_page(
     run_id: str | None = None,
     dataset_override: str | None = None,
     selected_providers_override: list[str] | None = None,
+    selected_voices_override: dict[str, str] | None = None,
+    ssml_override: str | None = None,
 ) -> str:
     runs = _scan_tts_benchmark_runs()
     latest = runs[0] if runs else None
     selected_dataset = (dataset_override or _TTS_DEFAULT_DATASET).strip()
     selected_providers = selected_providers_override or list(_TTS_DEFAULT_PROVIDERS)
+    selected_voices = selected_voices_override or {}
+    ssml_value = ssml_override or ""
 
-    provider_checkboxes = "".join(
-        "<label style=\"display:inline-flex; align-items:center; gap:8px; margin:4px 12px 4px 0;\">"
-        f"<input type=\"checkbox\" name=\"providers\" value=\"{escape(provider_id)}\""
-        f"{' checked' if provider_id in selected_providers else ''} />"
-        f"<span>{escape(provider_id)}</span>"
-        "</label>"
-        for provider_id in _TTS_SUPPORTED_PROVIDERS
-    )
+    def _provider_row(provider_id: str) -> str:
+        checked = " checked" if provider_id in selected_providers else ""
+        chosen_voice = (selected_voices.get(provider_id) or _tts_default_voice(provider_id)).strip()
+        voice_options = "".join(
+            f"<option value=\"{escape(voice)}\"{' selected' if voice == chosen_voice else ''}>{escape(voice)}</option>"
+            for voice in _TTS_PROVIDER_VOICES.get(provider_id, [])
+        )
+        # Allow a custom voice that is not in the predefined list.
+        if chosen_voice and chosen_voice not in _TTS_PROVIDER_VOICES.get(provider_id, []):
+            voice_options += f"<option value=\"{escape(chosen_voice)}\" selected>{escape(chosen_voice)} (custom)</option>"
+        return (
+            "<div class=\"tts-provider-row\" style=\"display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:6px 0;\">"
+            "<label style=\"display:inline-flex; align-items:center; gap:8px; min-width:170px;\">"
+            f"<input type=\"checkbox\" class=\"tts-provider-check\" name=\"providers\" value=\"{escape(provider_id)}\" "
+            f"onchange=\"onTtsProviderChange(this)\"{checked} />"
+            f"<span>{escape(provider_id)}</span></label>"
+            "<label style=\"display:inline-flex; align-items:center; gap:6px;\">"
+            "<span class=\"muted\" data-i18n-text=\"tts_voice_label\">Voice</span>"
+            f"<select class=\"tts-voice-select\" data-provider=\"{escape(provider_id)}\" "
+            f"name=\"voice__{escape(provider_id)}\" onchange=\"onTtsVoiceChange()\" style=\"min-width:220px;\">{voice_options}</select>"
+            "</label></div>"
+        )
+
+    provider_checkboxes = "".join(_provider_row(provider_id) for provider_id in _TTS_SUPPORTED_PROVIDERS)
 
     message_html = ""
     if message:
@@ -3045,6 +3135,16 @@ def _tts_benchmark_page(
                 <input type="checkbox" name="parallel" value="1" checked /> <span data-i18n-text="tts_parallel">Run providers in parallel</span>
               </label>
             </div>
+            <div class="panel" style="margin-top:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                <h4 style="margin:0;" data-i18n-text="tts_ssml_title">Custom speech (SSML)</h4>
+                <button type="button" class="btn" onclick="generateWelcomeSsml()" data-i18n-text="tts_ssml_gen">Generate welcome script</button>
+              </div>
+              <p class="muted" data-i18n="tts_ssml_help">Optional. Provide SSML to customize prosody, style, and pauses. Use <code>{{text}}</code> as a placeholder for each sample's text. When SSML is used, only one provider can be selected and the SSML voice matches it. Leave empty to synthesize the raw dataset text.</p>
+              <textarea id="tts_ssml" name="ssml" rows="8" spellcheck="false" oninput="onTtsSsmlInput()"
+                        placeholder="&lt;speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-TW'&gt;&#10;  &lt;prosody rate='medium' pitch='+2%'&gt;{{text}}&lt;/prosody&gt;&#10;&lt;/speak&gt;"
+                        style="width:100%; margin-top:6px; font-family:monospace; font-size:13px;">{escape(ssml_value)}</textarea>
+            </div>
             <div class="cta-row">
               <button class="btn primary" type="submit" data-i18n-text="tts_btn_run">Run TTS benchmark</button>
               <a class="btn" href="/" data-i18n-text="bench_btn_home">Back home</a>
@@ -3077,6 +3177,106 @@ def _tts_benchmark_page(
         <p data-i18n="tts_history_desc">Each run includes the parsed provider table plus the summary excerpt.</p></div></div>
       <div class="grid">{run_cards}</div>
     </section>
+
+    <style>
+      .tts-provider-row select {{ background:#141329; color:#e8e6ff; border:1px solid #3a356a; border-radius:6px; padding:4px 6px; }}
+    </style>
+    <script>
+      // ── SSML single-selection + welcome-script generation ────────────────
+      function ttsSsmlActive() {{
+        var ta = document.getElementById('tts_ssml');
+        return !!(ta && ta.value.trim());
+      }}
+
+      function ttsCheckedProviders() {{
+        return Array.prototype.slice.call(
+          document.querySelectorAll('.tts-provider-check:checked'));
+      }}
+
+      // When SSML is in use, enforce single provider selection (radio-like).
+      function onTtsProviderChange(box) {{
+        if (box.checked && ttsSsmlActive()) {{
+          document.querySelectorAll('.tts-provider-check').forEach(function(other) {{
+            if (other !== box) other.checked = false;
+          }});
+        }}
+        onTtsVoiceChange();
+      }}
+
+      function onTtsSsmlInput() {{
+        if (ttsSsmlActive()) {{
+          // Keep only the first checked provider selected.
+          var checked = ttsCheckedProviders();
+          for (var i = 1; i < checked.length; i++) checked[i].checked = false;
+        }}
+      }}
+
+      // If the SSML was auto-generated for a specific voice, refresh it when the
+      // selected voice changes so the SSML keeps matching the chosen method.
+      function onTtsVoiceChange() {{
+        var ta = document.getElementById('tts_ssml');
+        if (ta && ta.dataset.generated === '1' && ttsSsmlActive()) {{
+          generateWelcomeSsml();
+        }}
+      }}
+
+      function ttsSelectedProviderAndVoice() {{
+        var checked = ttsCheckedProviders();
+        var box = checked.length ? checked[0]
+          : document.querySelector('.tts-provider-check');
+        if (!box) return null;
+        var sel = document.querySelector(
+          '.tts-voice-select[data-provider="' + box.value + '"]');
+        return {{ provider: box.value, voice: sel ? sel.value : '' }};
+      }}
+
+      function ttsLocaleForVoice(voice) {{
+        // Azure/MAI voices look like "zh-TW-HsiaoChenNeural"; pull the locale.
+        var m = /^([a-z]{{2}}-[A-Z]{{2}})/.exec(voice || '');
+        return m ? m[1] : 'zh-TW';
+      }}
+
+      // Auto-generate a frequently-used call-center welcome script as SSML,
+      // matching the currently selected provider voice.
+      function generateWelcomeSsml() {{
+        var pick = ttsSelectedProviderAndVoice();
+        if (!pick) return;
+        // Ensure only this provider stays selected for the SSML run.
+        document.querySelectorAll('.tts-provider-check').forEach(function(b) {{
+          b.checked = (b.value === pick.provider);
+        }});
+        var locale = ttsLocaleForVoice(pick.voice);
+        var isZh = locale.indexOf('zh') === 0;
+        var body = isZh
+          ? ('    <mstts:express-as style="customerservice">\n'
+             + '      <prosody rate="medium" pitch="+2%">\n'
+             + '        您好，歡迎致電客戶服務中心。<break time="300ms"/>\n'
+             + '        我是您的專屬客服，很高興為您服務。<break time="300ms"/>\n'
+             + '        為了更快為您處理，請簡單說明您的問題，謝謝。\n'
+             + '      </prosody>\n'
+             + '    </mstts:express-as>\n')
+          : ('    <mstts:express-as style="customerservice">\n'
+             + '      <prosody rate="medium" pitch="+2%">\n'
+             + '        Thank you for calling our customer service center.<break time="300ms"/>\n'
+             + '        My name is your virtual assistant, and I am happy to help you today.<break time="300ms"/>\n'
+             + '        So we can assist you faster, please briefly describe your issue.\n'
+             + '      </prosody>\n'
+             + '    </mstts:express-as>\n');
+        var voiceName = pick.voice || (isZh ? 'zh-TW-HsiaoChenNeural' : 'en-US-JennyNeural');
+        var ssml =
+          '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
+          + 'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="' + locale + '">\n'
+          + '  <voice name="' + voiceName + '">\n'
+          + body
+          + '  </voice>\n'
+          + '</speak>';
+        var ta = document.getElementById('tts_ssml');
+        if (ta) {{
+          ta.value = ssml;
+          ta.dataset.generated = '1';
+        }}
+      }}
+    </script>
     """
     return _page_shell("TTS Benchmark", "tts-benchmark", body, "Voice Live / MAI-Voice / Azure TTS")
 
@@ -3088,23 +3288,38 @@ async def _tts_benchmark(_: Request) -> HTMLResponse:
 async def _tts_benchmark_run(request: Request) -> HTMLResponse:
     dataset = _TTS_DEFAULT_DATASET
     selected_providers: list[str] = []
+    selected_voices: dict[str, str] = {}
+    ssml_template = ""
     run_id: str | None = None
     try:
         form = await request.form()
         dataset = str(form.get("dataset") or _TTS_DEFAULT_DATASET).strip()
         parallel = bool(form.get("parallel"))
+        ssml_template = str(form.get("ssml") or "").strip()
         selected_providers = [
             str(provider).strip()
             for provider in form.getlist("providers")
             if str(provider).strip()
         ]
+        selected_voices = {
+            provider_id: voice
+            for provider_id in _TTS_SUPPORTED_PROVIDERS
+            if (voice := str(form.get(f"voice__{provider_id}") or "").strip())
+        }
         if not selected_providers:
             raise ValueError("Please select at least one TTS provider.")
+        if ssml_template and len(selected_providers) > 1:
+            raise ValueError("Custom SSML supports a single provider. Please select only one.")
         if not Path(dataset).exists():
             raise ValueError(f"Dataset not found: {dataset}")
 
         run_id = await asyncio.to_thread(
-            _run_tts_benchmark_from_dataset, dataset, selected_providers, parallel
+            _run_tts_benchmark_from_dataset,
+            dataset,
+            selected_providers,
+            parallel,
+            selected_voices,
+            ssml_template,
         )
         message = "TTS benchmark completed. Results and audio are shown below."
     except Exception as exc:  # noqa: BLE001 - surface run errors in the page
@@ -3116,6 +3331,8 @@ async def _tts_benchmark_run(request: Request) -> HTMLResponse:
             run_id=run_id,
             dataset_override=dataset,
             selected_providers_override=selected_providers or None,
+            selected_voices_override=selected_voices or None,
+            ssml_override=ssml_template or None,
         )
     )
 

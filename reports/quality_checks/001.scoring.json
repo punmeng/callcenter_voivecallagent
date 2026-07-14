@@ -1,0 +1,217 @@
+{
+  "call_id": "001",
+  "audio": "C:\\temp\\001.wav",
+  "processed_at": "2026-07-09T09:10:13.732845+00:00",
+  "stt_status": "OK",
+  "metrics": {
+    "stt_incoming_call_length_seconds": 4.49,
+    "llm_requests": 34,
+    "token_usage": {
+      "input_tokens": 38073,
+      "output_tokens": 1488,
+      "total_tokens": 39561
+    }
+  },
+  "summary": [
+    {
+      "id": "1",
+      "summary": "通話測試，無實際需求"
+    },
+    {
+      "id": "2",
+      "summary": "通話測試，未提供方案"
+    },
+    {
+      "id": "3",
+      "summary": "未見問題與處理結果"
+    }
+  ],
+  "scoring_details": [
+    {
+      "id": "A1",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試」，未出現客服主動致意、感謝等待、問好，或表達願意協助服務的語句，證據不足，故判定不符合。",
+      "evidence_quote": "「測測測試12345678 90通話測試」"
+    },
+    {
+      "id": "A1-1",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試。」未出現客服詢問是否為登記人本人、以「X先生/X小姐」稱呼、核資完成後稱呼/感謝，或提及剛來電已核資不重複等符合標準的語句。",
+      "evidence_quote": "測測測試12345678 90通話測試。"
+    },
+    {
+      "id": "A2",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試」，未出現客服釐清或複誦來電者需求目的的語句，也無法辨識有實際客服對話情境。",
+      "evidence_quote": "「測測測試12345678 90通話測試。」"
+    },
+    {
+      "id": "B1",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "B2",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試。」未出現任何客服與客戶互動內容，也無法辨識客服有使用親切有禮的語氣或相關禮貌表達。",
+      "evidence_quote": "「測測測試12345678 90通話測試。」"
+    },
+    {
+      "id": "B3",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "B4",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試」，未出現客戶提出問題後客服回應的內容，無法證明客服有以積極友善真誠的語調回應並尊重客戶意見。",
+      "evidence_quote": "「測測測試12345678 90通話測試。」"
+    },
+    {
+      "id": "B4-1",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C1",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試」，未出現客服主動查詢紀錄，亦未說明將協助處理的方向或相關語意。",
+      "evidence_quote": "測測測試12345678 90通話測試。"
+    },
+    {
+      "id": "C2",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C3",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C4",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試」，未出現任何客服對客戶的服務應對內容，無法證明有使用尊稱、禮貌用語，或展現良好服務禮儀。",
+      "evidence_quote": "「測測測試12345678 90通話測試。」"
+    },
+    {
+      "id": "C5-1",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5-2",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5-3",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5-4",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5-5",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5-6",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5-7",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5-8",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5-9",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "C5-10",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "D1",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試。」未出現客服確認客戶是否清楚、了解或明白今日處理與說明的語句，也無法判斷為客戶先自動離開的例外情況。",
+      "evidence_quote": "「測測測試12345678 90通話測試。」"
+    },
+    {
+      "id": "D1-1",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試。」未出現客服詢問「還有/其他/別的」需求或協助的語句，也無法判定為客戶先自動離開的例外情境。",
+      "evidence_quote": "「測測測試12345678 90通話測試。」"
+    },
+    {
+      "id": "D2",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試。」未出現客服依據節慶、氣候或時事的客製化結尾語，也無法判定為客戶先自動離開的例外情境。",
+      "evidence_quote": "「測測測試12345678 90通話測試。」"
+    },
+    {
+      "id": "D2-1",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "D2-2",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "D2-3",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "D2-4",
+      "verdict": "N/A",
+      "reason": "",
+      "evidence_quote": ""
+    },
+    {
+      "id": "E",
+      "verdict": "不符合",
+      "reason": "逐字稿僅有「測測測試12345678 90通話測試」，未出現客服進行人工核資的內容，也未出現「登入時已完成驗證／登入門號及密碼完成門號驗證」等說明語句，依標準屬未進行人工核資且未說明已完成驗證。",
+      "evidence_quote": "「測測測試12345678 90通話測試。」"
+    }
+  ]
+}

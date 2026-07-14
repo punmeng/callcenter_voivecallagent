@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>STT Benchmark Report</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      background: #f0f2f5;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+    .container { max-width: 1600px; margin: 0 auto; }
+    .header { text-align: center; margin-bottom: 50px; }
+    .header h1 { font-size: 2.8em; color: #1a1a1a; margin-bottom: 10px; font-weight: 700; }
+    .header p { font-size: 1.1em; color: #666; }
+    .table-wrapper { background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    table thead { background: linear-gradient(135deg, #2d1b69 0%, #3d2678 100%); color: white; }
+    table th { padding: 20px 16px; text-align: left; font-weight: 600; font-size: 0.95em; letter-spacing: 0.5px; text-transform: uppercase; }
+    table th:last-child { text-align: right; }
+    table td { padding: 18px 16px; border-bottom: 1px solid #e8e8e8; color: #333; font-size: 0.95em; }
+    table tbody tr { transition: all 0.2s ease; }
+    table tbody tr:hover { background: #f8f9fa; }
+    table tbody tr.best-row { background: #e8f5e9; }
+    table tbody tr.best-row:hover { background: #d4edda; }
+    .provider-name { font-weight: 600; color: #1a1a1a; }
+    .numeric { text-align: right; font-family: 'Monaco', 'Courier New', monospace; font-size: 0.9em; }
+    .action-cell { text-align: right; }
+    .detail-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85em;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+    .detail-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+    }
+    .detail-btn:active { transform: translateY(0); }
+    .details-panel { display: none; padding: 40px; background: #f9f9f9; border-top: 1px solid #e0e0e0; }
+    .details-panel.active { display: block; animation: slideDown 0.4s ease; }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+    .close-btn { float: right; background: #e0e0e0; color: #333; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500; }
+    .close-btn:hover { background: #d0d0d0; }
+    .sample-card { margin-bottom: 24px; padding: 20px; background: white; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+    .sample-header { font-weight: 700; color: #667eea; margin-bottom: 14px; font-size: 1.05em; }
+    .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .comparison-col { padding: 14px; background: #fafafa; border-radius: 6px; border: 1px solid #e8e8e8; }
+    .comparison-col.reference { border-left: 4px solid #4caf50; }
+    .comparison-col.hypothesis { border-left: 4px solid #f44336; }
+    .col-label { font-weight: 700; font-size: 0.85em; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px; }
+    .col-label.reference { color: #2e7d32; }
+    .col-label.hypothesis { color: #c62828; }
+    .col-text { font-size: 0.95em; line-height: 1.6; word-break: break-word; color: #333; }
+    .empty-text { color: #999; font-style: italic; }
+    .error-box { padding: 12px; background: #ffebee; border: 1px solid #ef5350; border-radius: 4px; color: #c62828; font-weight: 500; margin-bottom: 12px; }
+    .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 14px; }
+    .metric-box { padding: 12px; background: white; border: 1px solid #e0e0e0; border-radius: 4px; text-align: center; }
+    .metric-label { font-size: 0.75em; font-weight: 600; color: #666; text-transform: uppercase; margin-bottom: 6px; }
+    .metric-value { font-size: 1.1em; font-weight: 700; color: #667eea; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <div class='container'>
+    <div class='header'>
+      <h1>STT Benchmark Report</h1>
+      <p>Speech-to-Text Quality Analysis</p>
+    </div>
+    <div class='table-wrapper'>
+      <table>
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th class='numeric'>Samples</th>
+            <th class='numeric'>WER</th>
+            <th class='numeric'>CER</th>
+            <th class='numeric'>Keyword Recall</th>
+            <th class='numeric'>Confidence</th>
+            <th class='numeric'>Latency (ms)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class='best-row'>
+            <td class='provider-name'>voice-live-realtime-azure-speech-phrase-list (session=gpt-realtime, transcription=azure-speech, lang=zh-TW, phrase_list=on)<div style='font-size: 0.78em; color: #777; font-weight: 500; margin-top: 4px;'>voice-live-realtime-azure-speech-phrase-list</div></td>
+            <td class='numeric'>6</td>
+            <td class='numeric'>0.0000</td>
+            <td class='numeric'>0.0000</td>
+            <td class='numeric'>1.0000</td>
+            <td class='numeric'>1.0000</td>
+            <td class='numeric'>5438.18</td>
+            <td class='action-cell'><button class='detail-btn' onclick='toggleDetails(this, "voice-live-realtime-azure-speech-phrase-list")'>Details</button></td>
+          </tr>
+          <tr style='display: none;'>
+            <td colspan='8'>
+              <div id='details-voice-live-realtime-azure-speech-phrase-list' class='details-panel'>
+                <button class='close-btn' onclick='toggleDetails(this, "voice-live-realtime-azure-speech-phrase-list")'>Close</button>
+                <div style='clear: both; padding-top: 10px;'>
+                  <div class='sample-header' style='margin-bottom: 16px;'>Provider: voice-live-realtime-azure-speech-phrase-list (session=gpt-realtime, transcription=azure-speech, lang=zh-TW, phrase_list=on)</div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 70518426</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29770518426的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29770518426的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5994ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 74109268</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29774109268的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29774109268的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5281ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 82745169</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29782745169的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29782745169的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5010ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 91263750</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29791263750的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29791263750的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5179ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 91835472</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29791835472的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29791835472的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5752ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: case_05</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>請幫我查提單29771928242的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>請幫我查提單29771928242的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5414ms</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class='provider-name'>voice-live-realtime-gpt4o-transcribe (session=gpt-realtime, transcription=gpt-4o-transcribe, lang=zh-TW)<div style='font-size: 0.78em; color: #777; font-weight: 500; margin-top: 4px;'>voice-live-realtime-gpt4o-transcribe</div></td>
+            <td class='numeric'>5</td>
+            <td class='numeric'>0.0000</td>
+            <td class='numeric'>0.0000</td>
+            <td class='numeric'>1.0000</td>
+            <td class='numeric'>1.0000</td>
+            <td class='numeric'>5582.84</td>
+            <td class='action-cell'><button class='detail-btn' onclick='toggleDetails(this, "voice-live-realtime-gpt4o-transcribe")'>Details</button></td>
+          </tr>
+          <tr style='display: none;'>
+            <td colspan='8'>
+              <div id='details-voice-live-realtime-gpt4o-transcribe' class='details-panel'>
+                <button class='close-btn' onclick='toggleDetails(this, "voice-live-realtime-gpt4o-transcribe")'>Close</button>
+                <div style='clear: both; padding-top: 10px;'>
+                  <div class='sample-header' style='margin-bottom: 16px;'>Provider: voice-live-realtime-gpt4o-transcribe (session=gpt-realtime, transcription=gpt-4o-transcribe, lang=zh-TW)</div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 70518426</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29770518426的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查询29770518426的货况。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5337ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 74109268</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29774109268的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查询29774109268的货况。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>6065ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 82745169</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29782745169的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查询29782745169的货况。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5133ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 91263750</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29791263750的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查询29791263750的货况。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5799ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 91835472</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29791835472的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查询29791835472的货况。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5579ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: case_05</div>
+                    <div class='error-box'>Error: Live call failed: TimeoutError: </div>
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>請幫我查提單29771928242的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>[empty response]</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>92031ms</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class='provider-name'>azure-speech-stt-fast-phrase-list<div style='font-size: 0.78em; color: #777; font-weight: 500; margin-top: 4px;'>azure-speech-stt-fast-phrase-list</div></td>
+            <td class='numeric'>6</td>
+            <td class='numeric'>0.0208</td>
+            <td class='numeric'>0.0093</td>
+            <td class='numeric'>1.0000</td>
+            <td class='numeric'>0.9874</td>
+            <td class='numeric'>5426.66</td>
+            <td class='action-cell'><button class='detail-btn' onclick='toggleDetails(this, "azure-speech-stt-fast-phrase-list")'>Details</button></td>
+          </tr>
+          <tr style='display: none;'>
+            <td colspan='8'>
+              <div id='details-azure-speech-stt-fast-phrase-list' class='details-panel'>
+                <button class='close-btn' onclick='toggleDetails(this, "azure-speech-stt-fast-phrase-list")'>Close</button>
+                <div style='clear: both; padding-top: 10px;'>
+                  <div class='sample-header' style='margin-bottom: 16px;'>Provider: azure-speech-stt-fast-phrase-list</div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 70518426</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29770518426的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29770518426的貨礦。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.1250</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0556</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>0.9243</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>6655ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 74109268</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29774109268的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29774109268的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>4369ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 82745169</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29782745169的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29782745169的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>4481ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 91263750</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29791263750的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29791263750的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5704ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 91835472</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29791835472的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29791835472的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>6363ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: case_05</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>請幫我查提單29771928242的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>請幫我查提單29771928242的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>4988ms</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class='provider-name'>azure-speech-stt<div style='font-size: 0.78em; color: #777; font-weight: 500; margin-top: 4px;'>azure-speech-stt</div></td>
+            <td class='numeric'>6</td>
+            <td class='numeric'>0.0208</td>
+            <td class='numeric'>0.0093</td>
+            <td class='numeric'>1.0000</td>
+            <td class='numeric'>0.9874</td>
+            <td class='numeric'>6575.59</td>
+            <td class='action-cell'><button class='detail-btn' onclick='toggleDetails(this, "azure-speech-stt")'>Details</button></td>
+          </tr>
+          <tr style='display: none;'>
+            <td colspan='8'>
+              <div id='details-azure-speech-stt' class='details-panel'>
+                <button class='close-btn' onclick='toggleDetails(this, "azure-speech-stt")'>Close</button>
+                <div style='clear: both; padding-top: 10px;'>
+                  <div class='sample-header' style='margin-bottom: 16px;'>Provider: azure-speech-stt</div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 70518426</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29770518426的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29770518426的貨礦。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.1250</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0556</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>0.9243</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>8716ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 74109268</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29774109268的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29774109268的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5776ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 82745169</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29782745169的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29782745169的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>7414ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 91263750</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29791263750的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29791263750的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5883ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: 91835472</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>我想查詢29791835472的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>我想查詢29791835472的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5770ms</div></div>
+                    </div>
+                  </div>
+                  <div class='sample-card'>
+                    <div class='sample-header'>Call: case_05</div>
+                    
+                    <div class='comparison-grid'>
+                      <div class='comparison-col reference'>
+                        <div class='col-label reference'>✓ Expected</div>
+                        <div class='col-text'>請幫我查提單29771928242的貨況</div>
+                      </div>
+                      <div class='comparison-col hypothesis'>
+                        <div class='col-label hypothesis'>📝 Model Response</div>
+                        <div class='col-text'>請幫我查提單29771928242的貨況。</div>
+                      </div>
+                    </div>
+                    <div class='metrics-grid' style='grid-template-columns: repeat(5, 1fr);'>
+                      <div class='metric-box'><div class='metric-label'>WER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>CER</div><div class='metric-value'>0.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Keyword Recall</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Confidence</div><div class='metric-value'>1.0000</div></div>
+                      <div class='metric-box'><div class='metric-label'>Latency</div><div class='metric-value'>5894ms</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <script>
+    function toggleDetails(btn, detailsId) {
+      const detailsRow = btn.closest('tr').nextElementSibling;
+      const detailsPanel = document.getElementById('details-' + detailsId);
+      const isVisible = detailsRow.style.display !== 'none';
+      
+      if (isVisible) {
+        detailsRow.style.display = 'none';
+        detailsPanel.classList.remove('active');
+        btn.textContent = 'Details';
+      } else {
+        detailsRow.style.display = '';
+        detailsPanel.classList.add('active');
+        btn.textContent = 'Hide';
+        setTimeout(() => { detailsRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 100);
+      }
+    }
+  </script>
+</body>
+</html>

@@ -51,6 +51,11 @@ class TtsSample:
     text: str
     language: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Optional SSML document. When set, providers that support SSML synthesize this
+    # markup instead of the plain ``text`` (letting the user customize prosody,
+    # style, pauses, etc.). ``text`` is still used for char counts and as a
+    # fallback for providers that cannot consume SSML.
+    ssml: str = ""
 
 
 @dataclass
@@ -104,6 +109,26 @@ def _write_pcm16_wav(path: Path, pcm: bytes, sample_rate: int, channels: int = 1
         wav_file.writeframes(pcm)
 
 
+def _ssml_to_plain_text(ssml: str) -> str:
+    """Best-effort extraction of the spoken text from an SSML document.
+
+    Used for providers that cannot consume raw SSML (e.g. the Voice Live
+    text-driven path) so custom markup does not get read aloud tag-by-tag.
+    """
+    import re
+
+    without_comments = re.sub(r"<!--.*?-->", " ", ssml, flags=re.DOTALL)
+    without_tags = re.sub(r"<[^>]+>", " ", without_comments)
+    unescaped = (
+        without_tags.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+    )
+    return " ".join(unescaped.split())
+
+
 class AzureSpeechTtsProvider(TtsProvider):
     """Azure Speech neural TTS baseline via the Speech SDK.
 
@@ -153,7 +178,10 @@ class AzureSpeechTtsProvider(TtsProvider):
         synthesizer.synthesizing.connect(_on_synthesizing)
 
         started = time.perf_counter()
-        result = synthesizer.speak_text_async(sample.text).get()
+        if sample.ssml:
+            result = synthesizer.speak_ssml_async(sample.ssml).get()
+        else:
+            result = synthesizer.speak_text_async(sample.text).get()
         finished = time.perf_counter()
         total_ms = (finished - started) * 1000.0
 
@@ -242,11 +270,15 @@ class VoiceLiveTtsProvider(TtsProvider):
         payload: dict[str, Any] | None = None
         self._last_diagnostics = ""
 
+        # Voice Live TTS here is text-driven; if the sample carries SSML we speak its
+        # extracted plain text so markup tags are not read aloud.
+        spoken_text = _ssml_to_plain_text(sample.ssml) if sample.ssml else sample.text
+
         for attempt in range(1, max_attempts + 1):
             try:
                 payload = asyncio.run(
                     asyncio.wait_for(
-                        self._synthesize_via_voicelive(sample.text),
+                        self._synthesize_via_voicelive(spoken_text),
                         timeout=self._call_timeout_seconds,
                     )
                 )
@@ -421,10 +453,11 @@ class VoiceLiveTtsProvider(TtsProvider):
         return audio_chunks, first_delay_ms, events
 
 
-def build_tts_provider(name: str) -> TtsProvider:
+def build_tts_provider(name: str, voice: str | None = None) -> TtsProvider:
     normalized = name.strip().lower()
+    voice = (voice or "").strip() or None
     if normalized == "voice-live-api":
-        return VoiceLiveTtsProvider(provider_name="voice-live-api")
+        return VoiceLiveTtsProvider(provider_name="voice-live-api", voice_override=voice)
     if normalized == "gpt-realtime":
         # GPT Realtime speech synthesis via Voice Live using a native OpenAI voice.
         # OpenAI voices only produce audio with the model-driven "instructions"
@@ -433,18 +466,18 @@ def build_tts_provider(name: str) -> TtsProvider:
         return VoiceLiveTtsProvider(
             provider_name="gpt-realtime",
             model_override=(os.getenv("GPT_REALTIME_MODEL") or os.getenv("AZURE_VOICELIVE_MODEL") or "gpt-realtime"),
-            voice_override=(os.getenv("GPT_REALTIME_TTS_VOICE") or "marin"),
+            voice_override=(voice or os.getenv("GPT_REALTIME_TTS_VOICE") or "marin"),
             strategy_override="instructions",
         )
     if normalized == "azure-speech-tts":
-        return AzureSpeechTtsProvider()
+        return AzureSpeechTtsProvider(voice_name=voice)
     if normalized in {"mai-voice", "mai-voice-2"}:
         # MAI-Voice-2 is a multilingual neural TTS voice family served through the
         # Azure Speech SDK. Prebuilt voices (e.g. en-US-Harper:MAI-Voice-2) need no
         # deployment or gated access; only voice cloning/prompting is gated.
         return AzureSpeechTtsProvider(
             provider_name="mai-voice",
-            voice_name=(os.getenv("MAI_VOICE_NAME") or "en-US-Harper:MAI-Voice-2"),
+            voice_name=(voice or os.getenv("MAI_VOICE_NAME") or "en-US-Harper:MAI-Voice-2"),
         )
     raise ValueError(f"Unsupported TTS provider: {name}")
 
